@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>劍道 AI 動作分析網頁版 V2</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js" crossorigin="anonymous"></script>
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { color: #00ffcc; font-size: 24px; margin-bottom: 10px; }
+        
+        /* 雙視窗佈局 */
+        .workspace {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+            margin-top: 20px;
+        }
+        .box {
+            flex: 1;
+            background: #1e1e1e;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid #333;
+            position: relative;
+            aspect-ratio: 4/3;
+        }
+        video, canvas, iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            object-fit: cover;
+        }
+        .box-title {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 10;
+            font-size: 14px;
+            color: #00ffcc;
+        }
+        
+        .hud {
+            width: 100%;
+            max-width: 1160px;
+            margin-top: 15px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 5px solid #00ffcc;
+        }
+        .data-field { font-size: 20px; font-weight: bold; color: #00ffcc; margin-bottom: 5px; }
+        .advice-field { font-size: 16px; color: #e0e0e0; }
+        
+        .control-panel {
+            width: 100%;
+            max-width: 1160px;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .row { display: flex; gap: 10px; align-items: center; }
+        input[type="text"] {
+            flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #2a2a2a; color: white;
+        }
+        button {
+            background: #00ffcc; color: #121212; border: none; padding: 10px 20px;
+            font-size: 14px; font-weight: bold; border-radius: 5px; cursor: pointer;
+        }
+        button:hover { background: #00cc99; }
+        .hint { font-size: 12px; color: #aaa; }
+        #fileInput { display: none; }
+    </style>
+</head>
+<body>
+
+    <h1>劍道 AI 動作分析網頁版 (雙視窗對照版)</h1>
+
+    <div class="control-panel">
+        <div class="row">
+            <input type="text" id="ytLinkInput" placeholder="請貼上 YouTube 影片網址 (例如: https://www.youtube.com/watch?v=xxxxxx)">
+            <button id="loadYtBtn">載入右側對照影片</button>
+        </div>
+        <div class="row">
+            <button id="webcamButton">開啟即時鏡頭</button>
+            <button onclick="document.getElementById('fileInput').click()">匯入已下載的影片至 AI</button>
+            <input type="file" id="fileInput" accept="video/*">
+            <span class="hint">💡 提示：若想分析 YouTube 影片，請複製網址到快手等下載網站下載後，再點擊此處匯入。</span>
+        </div>
+    </div>
+    
+    <div class="workspace">
+        <div class="box">
+            <div class="box-title">左側：AI 動作捕捉與運算</div>
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="output_canvas"></canvas>
+        </div>
+        
+        <div class="box">
+            <div class="box-title">右側：YouTube 原片參考對照</div>
+            <iframe id="ytPlayer" src="" allowfullscreen></iframe>
+        </div>
+    </div>
+
+    <div class="hud">
+        <div id="angleDisplay" class="data-field">左手肘角度: --°</div>
+        <div id="adviceDisplay" class="advice-field">狀態: 正在載入 AI 模型中...</div>
+    </div>
+
+    <script type="module">
+        import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js";
+
+        const video = document.getElementById("webcam");
+        const canvasElement = document.getElementById("output_canvas");
+        const canvasCtx = canvasElement.getContext("2d");
+        const webcamButton = document.getElementById("webcamButton");
+        const fileInput = document.getElementById("fileInput");
+        const ytLinkInput = document.getElementById("ytLinkInput");
+        const loadYtBtn = document.getElementById("loadYtBtn");
+        const ytPlayer = document.getElementById("ytPlayer");
+        const angleDisplay = document.getElementById("angleDisplay");
+        const adviceDisplay = document.getElementById("adviceDisplay");
+
+        let poseLandmarker = undefined;
+        let isWebcam = false;
+
+        // 1. 載入 AI
+        async function initAI() {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm");
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full.task`, delegate: "GPU" },
+                runningMode: "VIDEO"
+            });
+            adviceDisplay.innerText = "狀態: AI 載入完成！請輸入 YouTube 網址或開啟鏡頭。";
+        }
+        initAI();
+
+        // 2. 解析並載入 YouTube Link 到右側
+        loadYtBtn.addEventListener("click", () => {
+            const urlStr = ytLinkInput.value.trim();
+            let videoId = "";
+            
+            // 解析 YouTube ID 核心邏輯
+            if(urlStr.includes("v=")) {
+                videoId = urlStr.split("v=")[1].split("&")[0];
+            } else if(urlStr.includes("youtu.be/")) {
+                videoId = urlStr.split("youtu.be/")[1].split("?")[0];
+            }
+
+            if(videoId) {
+                ytPlayer.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+                adviceDisplay.innerText = "狀態: 成功嵌入 YouTube 參考影片！請下載該影片並匯入到左側讓 AI 分析。";
+            } else {
+                alert("未能識別的 YouTube 網址，請確認格式是否正確。");
+            }
+        });
+
+        // 3. 鏡頭控制
+        webcamButton.addEventListener("click", () => {
+            isWebcam = true;
+            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } }).then((stream) => {
+                video.srcObject = stream;
+                video.addEventListener("loadeddata", predictWebcam);
+            });
+        });
+
+        // 4. 匯入影片
+        fileInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                isWebcam = false;
+                video.srcObject = null;
+                video.src = URL.createObjectURL(file);
+                video.addEventListener("loadeddata", predictVideo);
+                video.play();
+            }
+        });
+
+        // AI 運算核心
+        let lastVideoTime = -1;
+        async function predictFrame() {
+            canvasElement.width = video.videoWidth;
+            canvasElement.height = video.videoHeight;
+            if (lastVideoTime !== video.currentTime && poseLandmarker) {
+                lastVideoTime = video.currentTime;
+                const result = poseLandmarker.detectForVideo(video, performance.now());
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                
+                if (result.landmarks && result.landmarks.length > 0) {
+                    const landmarks = result.landmarks[0];
+                    const s = landmarks[11], e = landmarks[13], w = landmarks[15]; // 肩, 肘, 腕
+                    
+                    if (s && e && w) {
+                        canvasCtx.strokeStyle = "#00ffcc"; canvasCtx.lineWidth = 5;
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(s.x * canvasElement.width, s.y * canvasElement.height);
+                        canvasCtx.lineTo(e.x * canvasElement.width, e.y * canvasElement.height);
+                        canvasCtx.lineTo(w.x * canvasElement.width, w.y * canvasElement.height);
+                        canvasCtx.stroke();
+
+                        let radians = Math.atan2(w.y - e.y, w.x - e.x) - Math.atan2(s.y - e.y, s.x - e.x);
+                        let angle = Math.abs((radians * 180.0) / Math.PI);
+                        if (angle > 180.0) angle = 360.0 - angle;
+
+                        angleDisplay.innerText = `左手肘角度: ${angle.toFixed(1)}°`;
+                        adviceDisplay.innerText = angle < 75 ? "分析：舉刀手肘過緊！" : (angle > 155 ? "分析：打突完成，殘心標準！" : "分析：正在追蹤動作...");
+                    }
+                }
+            }
+        }
+
+        async function predictWebcam() { if (isWebcam) { await predictFrame(); window.requestAnimationFrame(predictWebcam); } }
+        async function predictVideo() { if (!isWebcam && !video.paused) { await predictFrame(); window.requestAnimationFrame(predictVideo); } }
+    </script>
+</body>
+</html>

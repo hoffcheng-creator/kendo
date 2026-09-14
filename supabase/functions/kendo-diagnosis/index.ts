@@ -181,7 +181,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       "你只能根據學員已偵測到的動作數據，以及系統提供的文獻啟發式基準做診斷，不可忽略數據、不可憑空假設未提供的細節。" +
       "文獻共識（教學用）：正面打突分振り上げ／振り下ろし；右肘在振り下ろし常先屈後伸；左肘相對穩定；雙手應協調；竹刀軌跡個人差較大，下肢與肘協調較適合做基準。" +
       "必須在 diagnosis 開頭用 <p> 引用實際數值，並簡要對照啟發式基準。" +
-      "可建議學員對照報告頁參考影片（出鼻面、返し胴），但不要假裝看過影片畫面。" +
+      "可建議學員對照報告頁參考影片與大學／劍道時代解說，但不要假裝看過影片或讀過全文。" +
+      "教學可引用：氣劍體一致（打突與踏込接近同時）、間のつめ、左手控中心、打ち切る、小手細小快速、一拍子双手協調（冴え）、左足引き付け與腰穩定；不要宣稱量度過未提供的踏込時間。" +
       "只輸出 JSON，欄位必須包含 diagnosis 與 practicePlan；用 HTML 包裝；繁體中文（香港用語可接受）。";
 
     const userPrompt = [
@@ -207,8 +208,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       "8. 鹿屋體大・踏込／踵 https://www.jstage.jst.go.jp/article/rjsp/14/0/14_2159/_article/-char/ja",
       "9. 日本體大・袴田 間のつめ https://doi.org/10.11214/budo1968.18.2_45",
       "10. 國際武道大學研究紀要 http://www.budo-u.ac.jp/laboratory/transaction/",
-    ].join("
-");
+    ].join("\n");
 
     const geminiEndpoint =
       "https://generativelanguage.googleapis.com/v1beta/models/" +

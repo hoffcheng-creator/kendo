@@ -56,10 +56,10 @@
     .active-page { display: block; animation: fade .25s ease; }
     @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-    .shell { max-width: 920px; margin: 0 auto; }
+    .shell { max-width: 1100px; margin: 0 auto; }
     .topbar {
       display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-      margin-bottom: 18px; flex-wrap: wrap;
+      margin-bottom: 10px; flex-wrap: wrap;
     }
     .brand {
       display: inline-flex; align-items: center; gap: 10px;
@@ -71,7 +71,7 @@
     .panel {
       background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%), var(--bg-elev);
       border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
-      padding: 16px; margin-bottom: 16px;
+      padding: 12px; margin-bottom: 12px;
     }
 
     .controls {
@@ -83,8 +83,8 @@
     .field { display: flex; flex-direction: column; gap: 6px; text-align: left; }
     .field label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; }
     select, button {
-      font: inherit; min-height: 48px; border-radius: 12px; border: 1px solid var(--line);
-      padding: 12px 14px; width: 100%;
+      font: inherit; min-height: 46px; border-radius: 10px; border: 1px solid var(--line);
+      padding: 10px 12px; width: 100%;
     }
     select {
       background: var(--bg-card); color: var(--text); appearance: none;
@@ -98,14 +98,14 @@
     }
     button { cursor: pointer; font-weight: 700; transition: transform .08s ease, opacity .15s ease; }
     button:active { transform: scale(0.98); }
-    .btn-record { background: var(--accent); color: #fff; border-color: transparent; }
-    .btn-stop { background: var(--warn); color: #111; border-color: transparent; }
-    .btn-submit { background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #fff; border-color: transparent; }
+    .btn-record { background: var(--accent); color: #fff; border: none; box-shadow: none; }
+    .btn-stop { background: var(--warn); color: #111; border: none; box-shadow: none; }
+    .btn-submit { background: #2563eb; color: #fff; border: none; box-shadow: none; }
     .btn-back { background: transparent; color: var(--text); }
-    .btn-ghost { background: var(--bg-card); color: var(--text); }
+    .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
 
     .video-wrap {
-      width: 100%; max-width: 640px; margin: 0 auto;
+      width: min(100%, 96vw); max-width: 960px; margin: 0 auto;
       aspect-ratio: 4 / 3;
       position: relative; border-radius: 14px; overflow: hidden;
       border: 1px solid var(--line); background: #000;
@@ -117,7 +117,7 @@
     }
 
     #realtime-dashboard {
-      width: 100%; max-width: 640px; margin: 14px auto 0;
+      width: min(100%, 96vw); max-width: 960px; margin: 12px auto 0;
       display: grid; grid-template-columns: 1fr; gap: 8px; text-align: left;
     }
     .metric-realtime {
@@ -155,7 +155,7 @@
     .info-card { border-left: 4px solid #3b82f6; }
     .practice-card { border-left: 4px solid var(--ok); }
     .analysis-player-box {
-      width: 100%; max-width: 640px; margin: 0 auto 12px; aspect-ratio: 4 / 3;
+      width: min(100%, 96vw); max-width: 960px; margin: 0 auto 12px; aspect-ratio: 4 / 3;
       position: relative; overflow: hidden; border-radius: 14px; border: 1px solid rgba(59,130,246,0.45);
       background: #000;
     }
@@ -174,7 +174,7 @@
     }
 
     .steps {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px;
     }
     .step {
       background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 12px;
@@ -186,12 +186,12 @@
       position: absolute; right: 10px; top: 10px; z-index: 5; display: flex; gap: 8px;
     }
     .btn-cam {
-      min-height: 44px; min-width: 44px; width: auto; padding: 10px 12px; border-radius: 999px;
-      background: rgba(0,0,0,0.55); color: #fff; border: 1px solid rgba(255,255,255,0.2);
-      backdrop-filter: blur(6px); font-size: 13px; font-weight: 700;
+      min-height: 40px; width: auto; padding: 8px 12px; border-radius: 8px;
+      background: rgba(0,0,0,0.65); color: #fff; border: none;
+      font-size: 13px; font-weight: 600;
     }
     .hint {
-      margin: 10px auto 0; max-width: 640px; color: var(--muted); font-size: 13px; text-align: left;
+      margin: 10px auto 0; max-width: 960px; color: var(--muted); font-size: 13px; text-align: left;
       background: rgba(255,255,255,0.03); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px;
     }
     .btn-submit:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
@@ -241,15 +241,15 @@
           </select>
         </div>
         <div class="actions">
-          <button id="btn-rec" class="btn-record" type="button" onclick="toggleRecording()">① 開始錄製</button>
-          <button id="btn-report" class="btn-submit" type="button" onclick="switchToReportPage()" disabled>② 產生診斷報告</button>
+          <button id="btn-rec" class="btn-record" type="button" onclick="toggleRecording()">錄製</button>
+          <button id="btn-report" class="btn-submit" type="button" onclick="switchToReportPage()" disabled>診斷報告</button>
         </div>
       </div>
     </div>
 
     <div class="video-wrap">
       <div class="video-toolbar">
-        <button id="btn-flip-cam" class="btn-cam" type="button" onclick="switchCamera()">切換後鏡頭</button>
+        <button id="btn-flip-cam" class="btn-cam" type="button" onclick="switchCamera()">後鏡頭</button>
       </div>
       <video id="webcam" playsinline muted style="display:none;"></video>
       <canvas id="output_canvas" width="640" height="480"></canvas>
@@ -276,9 +276,9 @@
         <video id="replay-video" controls playsinline></video>
       </div>
       <div class="video-controls">
-        <button class="btn-ghost" type="button" onclick="setPlaySpeed(0.5)">0.5x 慢速</button>
-        <button class="btn-ghost" type="button" onclick="setPlaySpeed(1.0)">1.0x 正常</button>
-        <button class="btn-ghost" type="button" onclick="pauseAtPeak()">跳至關鍵瞬間</button>
+        <button class="btn-ghost" type="button" onclick="setPlaySpeed(0.5)">0.5x</button>
+        <button class="btn-ghost" type="button" onclick="setPlaySpeed(1.0)">1.0x</button>
+        <button class="btn-ghost" type="button" onclick="pauseAtPeak()">關鍵點</button>
       </div>
 
       <div class="section-title">2. 關鍵打擊數據</div>
@@ -300,7 +300,7 @@
       <div class="practice-card"><div id="ai-practice-text">正在生成練習菜單...</div></div>
 
       <div class="footer-actions">
-        <button class="btn-back btn-ghost" type="button" onclick="switchToCameraPage()" style="max-width:320px;margin:0 auto;">重新錄製 / 返回鏡頭</button>
+        <button class="btn-back btn-ghost" type="button" onclick="switchToCameraPage()" style="max-width:320px;margin:0 auto;">返回</button>
       </div>
     </div>
   </div>
@@ -403,7 +403,7 @@
     function updateFlipButtonLabel() {
       const btn = document.getElementById('btn-flip-cam');
       if (!btn) return;
-      btn.textContent = currentFacingMode === 'user' ? '切換後鏡頭' : '切換前鏡頭';
+      btn.textContent = currentFacingMode === 'user' ? '後鏡頭' : '前鏡頭';
       const hint = document.getElementById('cam-hint');
       if (hint) {
         hint.innerHTML = currentFacingMode === 'user'
@@ -518,7 +518,7 @@
         mediaRecorder.start();
         isRecording = true;
 
-        recBtn.innerText = "停止錄製";
+        recBtn.innerText = "停止";
         recBtn.className = "btn-stop";
         recStatus.innerText = "REC 錄影中...";
         recStatus.className = "status-tag rec-active";
@@ -530,7 +530,7 @@
         mediaRecorder.stop();
         isRecording = false;
 
-        recBtn.innerText = "重新錄製";
+        recBtn.innerText = "再錄";
         recBtn.className = "btn-record";
         recStatus.innerText = "錄影完成，可以產生報告";
         recStatus.className = "status-tag";

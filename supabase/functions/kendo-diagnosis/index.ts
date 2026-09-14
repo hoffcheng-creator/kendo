@@ -310,6 +310,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         detail: dbError.message,
         diagnosis: diagnosisResult.diagnosis,
         practicePlan: diagnosisResult.practicePlan,
+        benchmarkNotes,
       }, 500);
     }
 

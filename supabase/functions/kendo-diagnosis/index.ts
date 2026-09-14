@@ -42,7 +42,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiApiKey) {
-      return jsonResponse({ error: "Missing GEMINI_API_KEY secret" }, 500);
+      console.error(JSON.stringify({
+        provider: "gemini",
+        errorStatus: "MISSING_SECRET",
+        hasGeminiKey: false,
+        deploymentId: Deno.env.get("DENO_DEPLOYMENT_ID") || null,
+        executionId: Deno.env.get("SB_EXECUTION_ID") || null,
+      }));
+      return jsonResponse({
+        error: "missing_provider_secret",
+        code: "GEMINI_API_KEY_MISSING",
+        provider: "gemini",
+      }, 500);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -102,8 +113,70 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
-      console.error("Gemini error:", geminiRes.status, errText);
-      return jsonResponse({ error: "Gemini API request failed", detail: errText }, 502);
+      let upstreamStatus = "UNKNOWN";
+      let upstreamMessage = "";
+      try {
+        const parsed = JSON.parse(errText);
+        upstreamStatus = parsed?.error?.status || upstreamStatus;
+        upstreamMessage = parsed?.error?.message || "";
+      } catch {
+        // keep raw truncated internally only
+        upstreamMessage = errText.slice(0, 200);
+      }
+
+      // Safe diagnostics — never log API keys, Authorization, prompts, or full payloads
+      console.error(JSON.stringify({
+        provider: "gemini",
+        model: "gemini-3.6-flash",
+        endpointFamily: "generativelanguage",
+        httpStatus: geminiRes.status,
+        errorStatus: upstreamStatus,
+        deploymentId: Deno.env.get("DENO_DEPLOYMENT_ID") || null,
+        executionId: Deno.env.get("SB_EXECUTION_ID") || null,
+        hasGeminiKey: Boolean(Deno.env.get("GEMINI_API_KEY")),
+      }));
+
+      // Map upstream authz denial to controlled gateway error for the caller
+      if (geminiRes.status === 403 || upstreamStatus === "PERMISSION_DENIED") {
+        return jsonResponse({
+          error: "upstream_provider_denied",
+          code: "GEMINI_PERMISSION_DENIED",
+          provider: "gemini",
+          status: 403,
+          // short hint without leaking internals
+          message: "Gemini project/API access denied. Check Google project billing, API enablement, and the GEMINI_API_KEY secret.",
+        }, 502);
+      }
+      if (geminiRes.status === 401) {
+        return jsonResponse({
+          error: "upstream_provider_unauthorized",
+          code: "GEMINI_API_KEY_INVALID",
+          provider: "gemini",
+          status: 401,
+        }, 502);
+      }
+      if (geminiRes.status === 404) {
+        return jsonResponse({
+          error: "upstream_model_not_found",
+          code: "GEMINI_MODEL_NOT_FOUND",
+          provider: "gemini",
+          status: 404,
+        }, 502);
+      }
+      if (geminiRes.status === 429) {
+        return jsonResponse({
+          error: "upstream_rate_limited",
+          code: "GEMINI_RATE_LIMIT",
+          provider: "gemini",
+          status: 429,
+        }, 503);
+      }
+      return jsonResponse({
+        error: "Gemini API request failed",
+        code: "GEMINI_UPSTREAM_ERROR",
+        provider: "gemini",
+        status: geminiRes.status,
+      }, 502);
     }
 
     const geminiJson = await geminiRes.json();

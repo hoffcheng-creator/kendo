@@ -156,7 +156,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const benchmarkNotes =
-      "<p><strong>文獻對照（啟發式）</strong>：参考筑波系／標準正面打突3D模型，以及八段面打關節研究。以下不是正式審判標準。</p><ul>" +
+      "<p><strong>文獻對照（啟發式）</strong>：参考筑波系／標準正面打突3D模型、八段面打關節研究，以及《劍道時代》教練解說（香田・宮崎等）。以下不是正式審判標準。</p><ul>" +
       heuristicNotes.map((n) => `<li>${n}</li>`).join("") +
       "</ul>";
 
@@ -180,10 +180,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `- detectionQuality: ${detectionQuality}`,
       "文獻啟發式基準：",
       ...heuristicNotes.map((n, i) => `${i + 1}. ${n}`),
-      "參考影片（學員對照用，你未觀看畫面）：",
+      "參考資料（學員對照用，你未閱讀／觀看全文）：",
       "1. 返し胴4種類 https://www.youtube.com/watch?v=MwPqKjLozyM",
       "2. 出鼻面5種類 https://www.youtube.com/watch?v=-EGzCr7dWdI",
-    ].join("\n");
+      "3. 《劍道時代》香田郡秀 仕かけ面 https://kendojidai.com/2020/01/13/koda-kunihides-l2/",
+      "4. 《劍道時代》香田郡秀 仕かけて小手 https://kendojidai.net/2020/02/10/koda-kunihide-l2-2/",
+      "5. 《劍道時代》面打精煉 https://kendojidai.com/2021/10/18/refining-men-strikes-part-1/",
+      "6. 《劍道時代》宮崎史裕 一拍子 https://kendojidai.net/2025/08/25/the-technique-of-striking-in-one-breath-miyazaki-fumihiro/",
+    ].join("
+");
 
     const geminiEndpoint =
       "https://generativelanguage.googleapis.com/v1beta/models/" +

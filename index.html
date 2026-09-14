@@ -280,7 +280,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v6</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v7</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -390,6 +390,8 @@
 
     let currentMetrics = { elbowAngle: '0.0', wristDiff: '0.000' };
     let maxElbowAngleRecorded = 0; // 紀錄揮力最高點
+    let poseFramesInRecording = 0;   // 錄影期間成功偵測到骨架嘅幀數
+    let elbowSamples = [];           // 錄影期間手肘角度樣本
 
     // 錄影相關變數
     let mediaRecorder;
@@ -443,9 +445,14 @@
           currentMetrics.elbowAngle = currentAngle;
           currentMetrics.wristDiff = wristL && wristR ? (wristL.y - wristR.y).toFixed(3) : '0.000';
 
-          // 如果在錄影狀態中，紀錄最大手肘伸展角度
-          if (isRecording && parseFloat(currentAngle) > maxElbowAngleRecorded) {
-            maxElbowAngleRecorded = parseFloat(currentAngle);
+          // 錄影期間：累積偵測幀同角度，先有真實數據
+          if (isRecording) {
+            poseFramesInRecording += 1;
+            const ang = parseFloat(currentAngle);
+            if (!isNaN(ang)) {
+              elbowSamples.push(ang);
+              if (ang > maxElbowAngleRecorded) maxElbowAngleRecorded = ang;
+            }
           }
 
           document.getElementById('rt-metric-elbow').innerText = `右手肘角度: ${currentMetrics.elbowAngle}°`;
@@ -582,6 +589,8 @@
         // 開始錄影（錄製 Canvas 畫面，這樣能把骨架一起錄進去）
         recordedChunks = [];
         maxElbowAngleRecorded = 0;
+        poseFramesInRecording = 0;
+        elbowSamples = [];
         const stream = canvasElement.captureStream(30); // 30 FPS
         
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
@@ -647,17 +656,29 @@
         alert('請先完成一次錄影，再產生診斷報告。');
         return;
       }
+      // 必須真係偵測到動作／骨架，先俾出 AI feedback
+      if (poseFramesInRecording < 8 || elbowSamples.length < 5 || maxElbowAngleRecorded <= 0) {
+        alert('今次錄影未夠清楚偵測到身體骨架／揮刀角度。\n請用後鏡頭、全身入鏡、光線充足，再錄一次。');
+        return;
+      }
       setGuideStep(3);
       const stance = document.getElementById('stance-select').value;
       const target = document.getElementById('target-select').value;
-      const finalElbow = maxElbowAngleRecorded > 0 ? maxElbowAngleRecorded : currentMetrics.elbowAngle;
+      const finalElbow = maxElbowAngleRecorded;
+      const avgElbow = (elbowSamples.reduce((a,b)=>a+b,0) / elbowSamples.length).toFixed(1);
+      const detectionQuality = poseFramesInRecording >= 30 ? 'good' : 'fair';
 
       document.getElementById('report-stance').innerText = `姿態模組：${stance}`;
       document.getElementById('report-target').innerText = `打擊目標：${target}`;
       document.getElementById('val-elbow').innerText = `${finalElbow}°`;
       document.getElementById('val-wrist').innerText = `${currentMetrics.wristDiff}`;
 
-      renderAIDiagnosis(stance, target, finalElbow); // async AI call
+      renderAIDiagnosis(stance, target, finalElbow, {
+        avgElbowAngle: avgElbow,
+        poseFrames: poseFramesInRecording,
+        detectionQuality: detectionQuality,
+        wristDiff: currentMetrics.wristDiff
+      }); // async AI call
 
       document.getElementById('page-1').classList.remove('active-page');
       document.getElementById('page-2').classList.add('active-page');
@@ -668,17 +689,20 @@
       document.getElementById('page-1').classList.add('active-page');
     }
 
-    async function renderAIDiagnosis(stance, target, elbowAngle) {
+    async function renderAIDiagnosis(stance, target, elbowAngle, meta) {
       const diagnosisEl = document.getElementById('ai-diagnosis-text');
       const practiceEl = document.getElementById('ai-practice-text');
-      diagnosisEl.innerHTML = '正在呼叫 AI 教練診斷中...';
-      practiceEl.innerHTML = '正在生成練習菜單...';
+      diagnosisEl.innerHTML = '已偵測到動作，正在根據角度數據生成診斷...';
+      practiceEl.innerHTML = '正在根據你嘅數據生成練習菜單...';
 
       const payload = {
         stance: stance,
         target: target,
         elbowAngle: parseFloat(elbowAngle),
-        wristDiff: String(currentMetrics.wristDiff)
+        wristDiff: String((meta && meta.wristDiff) || currentMetrics.wristDiff),
+        avgElbowAngle: meta && meta.avgElbowAngle ? parseFloat(meta.avgElbowAngle) : null,
+        poseFrames: meta && meta.poseFrames ? meta.poseFrames : null,
+        detectionQuality: (meta && meta.detectionQuality) || 'unknown'
       };
 
       try {
@@ -708,7 +732,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=6').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=7').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

@@ -211,7 +211,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v4</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -625,7 +625,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=4').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

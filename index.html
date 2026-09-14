@@ -155,6 +155,13 @@
     }
     .info-card { border-left: 4px solid #3b82f6; }
     .practice-card { border-left: 4px solid var(--ok); }
+    .ref-videos { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,0.03); }
+    .ref-videos h3 { margin: 0 0 8px; font-size: 1rem; }
+    .ref-videos p { margin: 0 0 10px; color: var(--muted); font-size: 0.85rem; }
+    .ref-videos a { display: block; color: #8ec8ff; text-decoration: none; margin: 6px 0; font-size: 0.92rem; line-height: 1.35; }
+    .ref-videos a:hover { text-decoration: underline; }
+    .benchmark-card { margin-top: 12px; padding: 12px 14px; border-left: 4px solid #c9a227; border-radius: 8px; background: rgba(201,162,39,0.08); font-size: 0.9rem; }
+
     .analysis-player-box {
       width: min(100%, 96vw); max-width: 960px; margin: 0 auto 12px; aspect-ratio: 4 / 3;
       position: relative; overflow: hidden; border-radius: 14px; border: 1px solid rgba(59,130,246,0.45);
@@ -280,7 +287,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v7</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v8</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -694,6 +701,8 @@
       const practiceEl = document.getElementById('ai-practice-text');
       diagnosisEl.innerHTML = '已偵測到動作，正在根據角度數據生成診斷...';
       practiceEl.innerHTML = '正在根據你嘅數據生成練習菜單...';
+      const bnLoad = document.getElementById('benchmark-notes');
+      if (bnLoad) bnLoad.innerHTML = '正在對照文獻基準...';
 
       const payload = {
         stance: stance,
@@ -721,10 +730,16 @@
         }
         diagnosisEl.innerHTML = data.diagnosis || '<p>未有診斷內容</p>';
         practiceEl.innerHTML = data.practicePlan || '<p>未有練習菜單</p>';
+        const bn = document.getElementById('benchmark-notes');
+        if (bn) {
+          bn.innerHTML = data.benchmarkNotes || '<p>已對照文獻啟發式基準（筑波系正面打突模型／八段面打研究）。</p>';
+        }
       } catch (err) {
         console.error(err);
         diagnosisEl.innerHTML = '<p style="color:#ff6b6b;">AI 診斷失敗：' + (err.message || err) + '</p>';
         practiceEl.innerHTML = '<p>請稍後再試，或檢查 Edge Function / Gemini Key 設定。</p>';
+        const bn = document.getElementById('benchmark-notes');
+        if (bn) bn.innerHTML = '<p>文獻對照未能生成（AI 呼叫失敗）。</p>';
       }
     }
   
@@ -732,7 +747,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=7').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=8').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

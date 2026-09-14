@@ -155,8 +155,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
       heuristicNotes.push("偵測品質 fair：入鏡／光線可能影響準確度，建議對照參考影片再錄一次。");
     }
 
+    // 鹿屋・日體大・國際武道大／氣劍體：而家前端未量踏込時間差，以教學啟發式提示
+    heuristicNotes.push(
+      "氣劍體一致（鹿屋・竹中等）：打突著打與右足踏み込み宜接近同時；若感覺「先打後踏」或「先踏後打」，練習時用聲音／影像檢查時間差。",
+    );
+    heuristicNotes.push(
+      "間合（日本體大・袴田等「間のつめ」）：由遠入近時保持姿勢穩定再打；勿只伸手夠遠而塌腰／散架。",
+    );
+    heuristicNotes.push(
+      "下肢（國際武道大系／踏込研究）：左足引き付け、右足踏込距離與腰上下動影響打突穩定；手機側視／全身入鏡較易自我檢查。",
+    );
+    if (isMen) {
+      heuristicNotes.push(
+        "手の内（日體大反應／打突研究脈絡）：面打宜小指側主導握法意識，双手協調勝於只靠右手發力。",
+      );
+    }
+
     const benchmarkNotes =
-      "<p><strong>文獻對照（啟發式）</strong>：参考筑波系／標準正面打突3D模型、八段面打關節研究，以及《劍道時代》教練解說（香田・宮崎等）。以下不是正式審判標準。</p><ul>" +
+      "<p><strong>文獻對照（啟發式）</strong>：参考筑波系／標準正面打突3D模型、八段面打關節研究，《劍道時代》教練解說，以及鹿屋／日體大／國際武道大相關研究要點。以下不是正式審判標準。</p><ul>" +
       heuristicNotes.map((n) => `<li>${n}</li>`).join("") +
       "</ul>";
 
@@ -187,6 +203,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       "4. 《劍道時代》香田郡秀 仕かけて小手 https://kendojidai.net/2020/02/10/koda-kunihide-l2-2/",
       "5. 《劍道時代》面打精煉 https://kendojidai.com/2021/10/18/refining-men-strikes-part-1/",
       "6. 《劍道時代》宮崎史裕 一拍子 https://kendojidai.net/2025/08/25/the-technique-of-striking-in-one-breath-miyazaki-fumihiro/",
+      "7. 鹿屋體大・竹中 打突と踏み込み時間差 https://nifs-k.repo.nii.ac.jp/records/801",
+      "8. 鹿屋體大・踏込／踵 https://www.jstage.jst.go.jp/article/rjsp/14/0/14_2159/_article/-char/ja",
+      "9. 日本體大・袴田 間のつめ https://doi.org/10.11214/budo1968.18.2_45",
+      "10. 國際武道大學研究紀要 http://www.budo-u.ac.jp/laboratory/transaction/",
     ].join("
 ");
 

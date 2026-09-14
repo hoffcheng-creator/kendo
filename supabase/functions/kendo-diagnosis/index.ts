@@ -410,7 +410,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
         wrist_diff: wristDiff,
         diagnosis: diagnosisResult.diagnosis,
         practice_plan: diagnosisResult.practicePlan,
-        raw_metrics: { stance, target, elbowAngle, wristDiff, avgElbowAngle, poseFrames, detectionQuality, heuristicNotes, coachBaseline: coach },
+        raw_metrics: {
+          stance,
+          target,
+          elbowAngle,
+          wristDiff,
+          avgElbowAngle,
+          poseFrames,
+          detectionQuality,
+          heuristicNotes,
+          coachCompareLines,
+          coachBaseline: coach,
+          benchmarkNotes,
+          source: "kendo-diagnosis",
+          schemaVersion: 2,
+        },
       })
       .select("*")
       .single();

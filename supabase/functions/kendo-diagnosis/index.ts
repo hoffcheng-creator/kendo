@@ -12,6 +12,9 @@ type DiagnosisPayload = {
   target?: string;
   elbowAngle?: number | string;
   wristDiff?: string | number;
+  avgElbowAngle?: number | string | null;
+  poseFrames?: number | string | null;
+  detectionQuality?: string | null;
 };
 
 type GeminiDiagnosis = {
@@ -70,6 +73,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const target = String(payload.target ?? "").trim();
     const elbowAngle = Number(payload.elbowAngle);
     const wristDiff = String(payload.wristDiff ?? "").trim();
+    const avgElbowAngle = payload.avgElbowAngle == null || payload.avgElbowAngle === ""
+      ? null
+      : Number(payload.avgElbowAngle);
+    const poseFrames = payload.poseFrames == null || payload.poseFrames === ""
+      ? null
+      : Number(payload.poseFrames);
+    const detectionQuality = String(payload.detectionQuality ?? "unknown").trim();
 
     if (!stance || !target || !Number.isFinite(elbowAngle) || !wristDiff) {
       return jsonResponse({
@@ -80,18 +90,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const systemInstruction =
       "你是一名兼具傳統精神與現代運動科學的資深劍道八段教練。" +
-      "請根據學員傳入的角度數據進行專業動作診斷與練習建議。" +
+      "你只能根據學員「已偵測到」的動作數據做診斷，不可忽略數據、不可憑空假設未提供的動作細節。" +
+      "必須在 diagnosis 開頭用 <p> 清楚引用實際數值（例如最大手肘角度、平均角度、雙手高度差、偵測品質）。" +
+      "若 detectionQuality 為 fair，要提醒拍攝／入鏡可能影響準確度，但仍要基於現有數值給建議。" +
       "只輸出 JSON，欄位必須包含 diagnosis 與 practicePlan。" +
-      "diagnosis：動作問題診斷與姿勢改善建議，用 HTML（如 <p>、<ul>、<li>、<strong>）包裝。" +
-      "practicePlan：針對性自主練習菜單，同樣用 HTML 包裝。" +
-      "請使用繁體中文。";
+      "diagnosis：針對該姿態(stance)與打擊目標(target)的問題診斷與姿勢改善，用 HTML（<p>、<ul>、<li>、<strong>）包裝。" +
+      "practicePlan：可執行的自主練習菜單，對應你指出的問題，同樣用 HTML 包裝。" +
+      "請使用繁體中文（香港用語可接受）。";
 
     const userPrompt = [
-      "請診斷以下劍道動作數據：",
-      `- stance: ${stance}`,
-      `- target: ${target}`,
-      `- elbowAngle: ${elbowAngle}`,
-      `- wristDiff: ${wristDiff}`,
+      "以下數據來自電腦視覺（MediaPipe Pose）在學員揮刀錄影中「實際偵測」到的結果。",
+      "請先確認已偵測到動作，再只根據這些數值做診斷與練習建議，不要編造未出現的動作細節。",
+      `- stance（姿態）: ${stance}`,
+      `- target（打擊目標）: ${target}`,
+      `- elbowAngle（錄影期間最大手肘角度，度）: ${elbowAngle}`,
+      `- avgElbowAngle（錄影期間平均手肘角度，度）: ${avgElbowAngle ?? "n/a"}`,
+      `- wristDiff（雙手高度差）: ${wristDiff}`,
+      `- poseFrames（成功偵測骨架幀數）: ${poseFrames ?? "n/a"}`,
+      `- detectionQuality（偵測品質）: ${detectionQuality}`,
+    ].join("
+");t}`,
+      `- elbowAngle（錄影期間最大手肘角度，度）: ${elbowAngle}`,
+      `- avgElbowAngle（錄影期間平均手肘角度，度）: ${avgElbowAngle ?? "n/a"}`,
+      `- wristDiff（雙手高度差）: ${wristDiff}`,
+      `- poseFrames（成功偵測骨架幀數）: ${poseFrames ?? "n/a"}`,
+      `- detectionQuality（偵測品質）: ${detectionQuality}`,
     ].join("\n");
 
     const geminiEndpoint =
@@ -207,7 +230,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         wrist_diff: wristDiff,
         diagnosis: diagnosisResult.diagnosis,
         practice_plan: diagnosisResult.practicePlan,
-        raw_metrics: { stance, target, elbowAngle, wristDiff },
+        raw_metrics: { stance, target, elbowAngle, wristDiff, avgElbowAngle, poseFrames, detectionQuality },
       })
       .select("*")
       .single();

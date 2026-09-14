@@ -88,26 +88,101 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }, 400);
     }
 
+    // 文獻啟發式基準（教學用，非全日本剣道連盟正式評分）
+    // 参考：横山・百鬼・久保等 標準3D正面打撃；Murase 等八段面打；筑波系正面打突研究
+    const wristNum = Number(wristDiff);
+    const absWrist = Number.isFinite(wristNum) ? Math.abs(wristNum) : null;
+    const targetNorm = target.toLowerCase();
+    const isMen = /面|men/.test(targetNorm) || target.includes("面");
+    const isKote = /小手|kote/.test(targetNorm) || target.includes("小手");
+    const isDo = /胴|do|どう/.test(targetNorm) || target.includes("胴");
+
+    const heuristicNotes: string[] = [];
+    if (isMen) {
+      if (elbowAngle < 140) {
+        heuristicNotes.push(
+          `面打啟發式：最大右肘角 ${elbowAngle}° < 140°，傾向「振り下ろし伸展不足」（文獻常見右肘先屈後伸）。`,
+        );
+      } else if (elbowAngle <= 175) {
+        heuristicNotes.push(
+          `面打啟發式：最大右肘角 ${elbowAngle}° 約在教學常見範圍（140–175°），伸展大致合理。`,
+        );
+      } else {
+        heuristicNotes.push(
+          `面打啟發式：最大右肘角 ${elbowAngle}° 偏高，可能過度伸直或量度雜訊；文獻強調右肘協調屈伸、左肘相對穩定。`,
+        );
+      }
+    } else if (isKote) {
+      heuristicNotes.push(
+        `小手啟發式：小手通常比面打更短促；唔好硬套面打最大伸展標準。`,
+      );
+    } else if (isDo) {
+      heuristicNotes.push(
+        `胴／返し胴啟發式：更強調時機與刃筋；角度僅作輔助，可對照返し胴教學片。`,
+      );
+    } else {
+      heuristicNotes.push(
+        `目標「${target}」：以打突協調為準，右肘操作清晰、雙手高度差不宜過大。`,
+      );
+    }
+
+    if (absWrist != null) {
+      if (absWrist > 0.08) {
+        heuristicNotes.push(
+          `雙手高度差 |wristDiff|=${absWrist.toFixed(3)} 偏大（啟發式門檻約 0.08）：可能左右手不夠協調。`,
+        );
+      } else {
+        heuristicNotes.push(
+          `雙手高度差 |wristDiff|=${absWrist.toFixed(3)} 屬較協調範圍（啟發式）。`,
+        );
+      }
+    }
+
+    if (avgElbowAngle != null && Number.isFinite(avgElbowAngle) && isMen) {
+      const delta = elbowAngle - avgElbowAngle;
+      if (delta < 15) {
+        heuristicNotes.push(
+          `最大角與平均角差距偏小（Δ=${delta.toFixed(1)}°）：可能缺少明顯「先屈後伸」峰值。`,
+        );
+      } else {
+        heuristicNotes.push(
+          `最大角相對平均角有明顯峰值（Δ=${delta.toFixed(1)}°），符合右肘動態屈伸方向。`,
+        );
+      }
+    }
+
+    if (detectionQuality === "fair") {
+      heuristicNotes.push("偵測品質 fair：入鏡／光線可能影響準確度，建議對照參考影片再錄一次。");
+    }
+
+    const benchmarkNotes =
+      "<p><strong>文獻對照（啟發式）</strong>：参考筑波系／標準正面打突3D模型，以及八段面打關節研究。以下不是正式審判標準。</p><ul>" +
+      heuristicNotes.map((n) => `<li>${n}</li>`).join("") +
+      "</ul>";
+
     const systemInstruction =
       "你是一名兼具傳統精神與現代運動科學的資深劍道八段教練。" +
-      "你只能根據學員「已偵測到」的動作數據做診斷，不可忽略數據、不可憑空假設未提供的動作細節。" +
-      "必須在 diagnosis 開頭用 <p> 清楚引用實際數值（例如最大手肘角度、平均角度、雙手高度差、偵測品質）。" +
-      "若 detectionQuality 為 fair，要提醒拍攝／入鏡可能影響準確度，但仍要基於現有數值給建議。" +
-      "只輸出 JSON，欄位必須包含 diagnosis 與 practicePlan。" +
-      "diagnosis：針對該姿態(stance)與打擊目標(target)的問題診斷與姿勢改善，用 HTML（<p>、<ul>、<li>、<strong>）包裝。" +
-      "practicePlan：可執行的自主練習菜單，對應你指出的問題，同樣用 HTML 包裝。" +
-      "請使用繁體中文（香港用語可接受）。";
+      "你只能根據學員已偵測到的動作數據，以及系統提供的文獻啟發式基準做診斷，不可忽略數據、不可憑空假設未提供的細節。" +
+      "文獻共識（教學用）：正面打突分振り上げ／振り下ろし；右肘在振り下ろし常先屈後伸；左肘相對穩定；雙手應協調；竹刀軌跡個人差較大，下肢與肘協調較適合做基準。" +
+      "必須在 diagnosis 開頭用 <p> 引用實際數值，並簡要對照啟發式基準。" +
+      "可建議學員對照報告頁參考影片（出鼻面、返し胴），但不要假裝看過影片畫面。" +
+      "只輸出 JSON，欄位必須包含 diagnosis 與 practicePlan；用 HTML 包裝；繁體中文（香港用語可接受）。";
 
     const userPrompt = [
-      "以下數據來自電腦視覺（MediaPipe Pose）在學員揮刀錄影中「實際偵測」到的結果。",
-      "請先確認已偵測到動作，再只根據這些數值做診斷與練習建議，不要編造未出現的動作細節。",
-      `- stance（姿態）: ${stance}`,
-      `- target（打擊目標）: ${target}`,
-      `- elbowAngle（錄影期間最大手肘角度，度）: ${elbowAngle}`,
-      `- avgElbowAngle（錄影期間平均手肘角度，度）: ${avgElbowAngle ?? "n/a"}`,
-      `- wristDiff（雙手高度差）: ${wristDiff}`,
-      `- poseFrames（成功偵測骨架幀數）: ${poseFrames ?? "n/a"}`,
-      `- detectionQuality（偵測品質）: ${detectionQuality}`,
+      "以下數據來自 MediaPipe Pose 實際偵測結果。",
+      "請根據數值 + 文獻啟發式基準做診斷與練習建議。",
+      `- stance: ${stance}`,
+      `- target: ${target}`,
+      `- elbowAngle (max): ${elbowAngle}`,
+      `- avgElbowAngle: ${avgElbowAngle ?? "n/a"}`,
+      `- wristDiff: ${wristDiff}`,
+      `- poseFrames: ${poseFrames ?? "n/a"}`,
+      `- detectionQuality: ${detectionQuality}`,
+      "文獻啟發式基準：",
+      ...heuristicNotes.map((n, i) => `${i + 1}. ${n}`),
+      "參考影片（學員對照用，你未觀看畫面）：",
+      "1. 返し胴4種類 https://www.youtube.com/watch?v=MwPqKjLozyM",
+      "2. 出鼻面5種類 https://www.youtube.com/watch?v=-EGzCr7dWdI",
     ].join("\n");
 
     const geminiEndpoint =
@@ -223,7 +298,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         wrist_diff: wristDiff,
         diagnosis: diagnosisResult.diagnosis,
         practice_plan: diagnosisResult.practicePlan,
-        raw_metrics: { stance, target, elbowAngle, wristDiff, avgElbowAngle, poseFrames, detectionQuality },
+        raw_metrics: { stance, target, elbowAngle, wristDiff, avgElbowAngle, poseFrames, detectionQuality, heuristicNotes },
       })
       .select("*")
       .single();
@@ -242,6 +317,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ok: true,
       diagnosis: diagnosisResult.diagnosis,
       practicePlan: diagnosisResult.practicePlan,
+      benchmarkNotes,
       record: row,
     });
   } catch (err) {

@@ -169,6 +169,13 @@
     .coach-panel .coach-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .coach-panel .coach-actions button { flex: 1; min-width: 140px; }
     .coach-mode-on #btn-rec { box-shadow: 0 0 0 3px rgba(56,189,248,0.55); }
+    #btn-coach-mode {
+      border: 1px solid #38bdf8; color: #7dd3fc; font-weight: 600;
+    }
+    #btn-coach-mode.coach-active, body.coach-mode-on #btn-coach-mode {
+      background: rgba(3,105,161,0.35); border-color: #38bdf8; color: #e0f2fe;
+    }
+
     .coach-compare { margin-top: 12px; padding: 12px 14px; border-left: 4px solid #38bdf8; border-radius: 8px; background: rgba(56,189,248,0.08); font-size: 0.9rem; }
 
 
@@ -297,7 +304,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v11</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v12</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -326,8 +333,16 @@
             <option value="KOTE">小手 (Kote)</option>
           </select>
         </div>
-        <div class="actions" style="grid-template-columns:1fr;">
+        <div class="actions" style="grid-template-columns:1fr 1fr; gap:8px;">
+          <button id="btn-coach-mode" class="btn-ghost" type="button" onclick="toggleCoachMode()">錄教練示範</button>
           <button id="btn-report" class="btn-submit" type="button" onclick="switchToReportPage()" disabled>診斷報告</button>
+        </div>
+      </div>
+      <div class="coach-panel" id="coach-panel">
+        <h3>教練示範標準</h3>
+        <p id="coach-baseline-summary" style="margin:0;color:var(--muted);font-size:0.88rem;">尚未儲存教練示範。撳上面「錄教練示範」，再用圓掣錄一段正確動作。</p>
+        <div class="coach-actions">
+          <button id="btn-clear-coach" class="btn-ghost" type="button" onclick="clearCoachBaseline()" style="display:none;">清除標準</button>
         </div>
       </div>
     </div>
@@ -653,7 +668,7 @@
       }
       if (modeBtn) {
         modeBtn.textContent = coachModeActive ? '取消教練模式' : '錄教練示範';
-        modeBtn.style.borderColor = coachModeActive ? '#38bdf8' : '';
+        modeBtn.classList.toggle('coach-active', !!coachModeActive);
       }
       document.body.classList.toggle('coach-mode-on', !!coachModeActive);
     }
@@ -917,7 +932,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=11').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=12').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

@@ -305,7 +305,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v18</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v19</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -342,7 +342,7 @@
           </select>
         </div>
         <div class="pair-side-row" id="pair-side-row">
-          <button type="button" class="btn-ghost active" id="btn-side-auto" onclick="setPairTrackMode('auto')">智能追蹤</button>
+          <button type="button" class="btn-ghost active" id="btn-side-auto" onclick="setPairTrackMode('ai')">AI追蹤</button>
           <button type="button" class="btn-ghost" id="btn-side-left" onclick="setPairTrackMode('left')">鎖定左邊</button>
           <button type="button" class="btn-ghost" id="btn-side-right" onclick="setPairTrackMode('right')">鎖定右邊</button>
         </div>
@@ -522,7 +522,7 @@
       const a = document.getElementById('btn-side-auto');
       const l = document.getElementById('btn-side-left');
       const r = document.getElementById('btn-side-right');
-      if (a) a.classList.toggle('active', pairTrackMode === 'auto');
+      if (a) a.classList.toggle('active', pairTrackMode === 'ai' || pairTrackMode === 'auto');
       if (l) l.classList.toggle('active', pairTrackMode === 'left');
       if (r) r.classList.toggle('active', pairTrackMode === 'right');
     }
@@ -533,9 +533,11 @@
       const row = document.getElementById('pair-side-row');
       if (row) row.classList.toggle('show', practiceMode === 'pair');
       if (practiceMode === 'pair') {
-        if (pairTrackMode === 'auto') {
+        if (pairTrackMode === 'ai' || pairTrackMode === 'auto') {
+          pairTrackMode = 'ai';
           pairAutoLocked = false;
           lastPairEvalMs = 0;
+          aiTrackReason = '';
         }
       }
       syncPairSideButtons();
@@ -543,14 +545,16 @@
     }
 
     function setPairTrackMode(mode) {
-      if (mode === 'auto') {
-        pairTrackMode = 'auto';
+      if (mode === 'ai' || mode === 'auto') {
+        pairTrackMode = 'ai';
         pairAutoLocked = false;
         lastPairEvalMs = 0;
+        aiTrackReason = '';
       } else {
         pairTrackMode = mode === 'right' ? 'right' : 'left';
         pairSide = pairTrackMode;
         pairAutoLocked = true;
+        aiTrackReason = 'manual';
       }
       syncPairSideButtons();
       updateFlipButtonLabel();
@@ -629,6 +633,84 @@
         lastPairEvalMs = Date.now();
       }
     }
+
+    function captureTrackFrameBase64() {
+      if (!videoElement || videoElement.readyState < 2) return null;
+      const vw = videoElement.videoWidth || 640;
+      const vh = videoElement.videoHeight || 480;
+      const maxW = 640;
+      const w = Math.min(maxW, vw);
+      const h = Math.max(1, Math.round(vh * (w / vw)));
+      trackSnapCanvas.width = w;
+      trackSnapCanvas.height = h;
+      const ctx = trackSnapCanvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(videoElement, 0, 0, w, h);
+      // 畫中線輔助 AI
+      ctx.strokeStyle = 'rgba(255,255,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(w * 0.5, 0);
+      ctx.lineTo(w * 0.5, h);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,0,0.9)';
+      ctx.font = '16px sans-serif';
+      ctx.fillText('L', 8, 20);
+      ctx.fillText('R', w * 0.5 + 8, 20);
+      const dataUrl = trackSnapCanvas.toDataURL('image/jpeg', 0.55);
+      const i = dataUrl.indexOf(',');
+      return i >= 0 ? dataUrl.slice(i + 1) : null;
+    }
+
+    async function runAiPairTrack() {
+      if (aiTrackInFlight) return;
+      if (practiceMode !== 'pair' || pairTrackMode !== 'ai') return;
+      const imageBase64 = captureTrackFrameBase64();
+      if (!imageBase64) return;
+      aiTrackInFlight = true;
+      try {
+        const res = await fetch(KENDO_FN_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+            'apikey': SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify({
+            action: 'track',
+            imageBase64: imageBase64,
+            mimeType: 'image/jpeg'
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error((data && (data.error || data.code)) || ('HTTP ' + res.status));
+        const side = String(data.side || '').toLowerCase().includes('right') ? 'right' : 'left';
+        let conf = Number(data.confidence);
+        if (!Number.isFinite(conf)) conf = 0.5;
+        aiTrackReason = String(data.reason || '').slice(0, 80);
+        if (!pairAutoLocked) {
+          if (conf >= 0.35) {
+            pairSide = side;
+            pairAutoLocked = true;
+          } else {
+            pairSide = side;
+          }
+        } else if (side === pairSide) {
+          // keep
+        } else if (conf >= 0.72) {
+          pairSide = side;
+        } else if (conf >= 0.55 && (Date.now() - lastPairEvalMs) > 4000) {
+          pairSide = side;
+        }
+      } catch (e) {
+        console.warn('AI track failed', e);
+        aiTrackReason = 'AI暫不可用';
+      } finally {
+        aiTrackInFlight = false;
+        lastPairEvalMs = Date.now();
+      }
+    }
+
 
 
     // 要求軀幹＋手臂關鍵點夠清楚，避免追錯竹刀／傢俬／背景
@@ -784,10 +866,10 @@
         canvasCtx.fillStyle = 'rgba(56,189,248,0.9)';
         canvasCtx.font = '14px sans-serif';
         let lockLabel;
-        if (pairTrackMode === 'auto') {
-          lockLabel = pairAutoLocked
-            ? ('智能鎖定：' + (pairSide === 'left' ? '左邊' : '右邊'))
-            : '智能追蹤：搜尋中…';
+        if (pairTrackMode === 'ai' || pairTrackMode === 'auto') {
+          if (aiTrackInFlight && !pairAutoLocked) lockLabel = 'AI追蹤：分析中…';
+          else if (pairAutoLocked) lockLabel = 'AI鎖定：' + (pairSide === 'left' ? '左邊' : '右邊');
+          else lockLabel = 'AI追蹤：搜尋中…';
         } else {
           lockLabel = '手動鎖定：' + (pairSide === 'left' ? '左邊' : '右邊');
         }
@@ -919,7 +1001,7 @@
     let rafId = null;
     let hasRecordedClip = false;
     let practiceMode = 'solo'; // solo | pair
-    let pairTrackMode = 'auto'; // auto | left | right
+    let pairTrackMode = 'ai'; // ai | left | right
     let pairSide = 'left';     // 實際追蹤邊半邊
     let pairAutoLocked = false;
     let pairSideScores = { left: 0, right: 0 };
@@ -927,7 +1009,10 @@
     let poseLoopBusy = false;
     let poseResultWaiter = null;
     let skipOnResultsDraw = false;
-    const PAIR_EVAL_INTERVAL_MS = 900;
+    const PAIR_EVAL_INTERVAL_MS = 2500;
+    let aiTrackInFlight = false;
+    let aiTrackReason = '';
+    const trackSnapCanvas = document.createElement('canvas');
     const PAIR_SWITCH_MARGIN = 12;
     const poseCropCanvas = document.createElement('canvas');
     const poseCropCtx = poseCropCanvas.getContext('2d', { willReadFrequently: true });
@@ -948,8 +1033,8 @@
       if (hint) {
         if (practiceMode === 'pair') {
           const sideTxt = pairSide === 'left' ? '左邊' : '右邊';
-          const modeTxt = pairTrackMode === 'auto'
-            ? '預設<strong>智能追蹤</strong>（比兩邊邊個似持劍者），亦可手動鎖定。'
+          const modeTxt = (pairTrackMode === 'ai' || pairTrackMode === 'auto')
+            ? '預設<strong>AI追蹤</strong>（Gemini 睇畫面揀持劍者），亦可手動鎖定。'
             : '而家<strong>手動鎖定' + sideTxt + '</strong>。';
           hint.innerHTML = currentFacingMode === 'user'
             ? '雙人模式：請切<strong>後鏡頭</strong>。' + modeTxt
@@ -1022,8 +1107,9 @@
           try {
             if (practiceMode === 'pair') {
               const now = Date.now();
-              if (pairTrackMode === 'auto' && (now - lastPairEvalMs > PAIR_EVAL_INTERVAL_MS || !pairAutoLocked)) {
-                await evaluatePairSides();
+              if ((pairTrackMode === 'ai' || pairTrackMode === 'auto') && (now - lastPairEvalMs > PAIR_EVAL_INTERVAL_MS || !pairAutoLocked)) {
+                // 唔 await，避免卡 MediaPipe 幀
+                runAiPairTrack();
               }
               drawPairCrop(pairSide);
               await pose.send({ image: poseCropCanvas });
@@ -1368,7 +1454,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=18').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=19').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

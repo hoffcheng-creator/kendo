@@ -172,6 +172,33 @@
       .metrics-grid { grid-template-columns: 1fr; }
       .video-controls { grid-template-columns: 1fr; }
     }
+
+    .steps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;
+    }
+    .step {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 12px;
+      padding: 10px 12px; text-align: left; font-size: 12px; color: var(--muted);
+    }
+    .step b { display: block; color: var(--text); font-size: 13px; margin-bottom: 4px; }
+    .step.active { border-color: rgba(56,189,248,0.45); background: rgba(56,189,248,0.08); color: #dbeafe; }
+    .video-toolbar {
+      position: absolute; right: 10px; top: 10px; z-index: 5; display: flex; gap: 8px;
+    }
+    .btn-cam {
+      min-height: 44px; min-width: 44px; width: auto; padding: 10px 12px; border-radius: 999px;
+      background: rgba(0,0,0,0.55); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+      backdrop-filter: blur(6px); font-size: 13px; font-weight: 700;
+    }
+    .hint {
+      margin: 10px auto 0; max-width: 640px; color: var(--muted); font-size: 13px; text-align: left;
+      background: rgba(255,255,255,0.03); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px;
+    }
+    .btn-submit:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    .mirror { transform: scaleX(-1); }
+    @media (max-width: 640px) {
+      .steps { grid-template-columns: 1fr; }
+    }
     @media (min-width: 900px) {
       .panel-tight { padding: 20px; }
     }
@@ -189,11 +216,17 @@
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
 
+    <div class="steps" id="guide-steps">
+      <div class="step active" id="step-1"><b>① 選姿態／目標</b>先揀你要練習嘅構同打擊部位</div>
+      <div class="step" id="step-2"><b>② 對準鏡頭並錄影</b>可用後鏡拍攝全身揮刀</div>
+      <div class="step" id="step-3"><b>③ 產生 AI 報告</b>錄完再撳診斷</div>
+    </div>
+
     <div class="panel panel-tight">
       <div class="controls">
         <div class="field">
           <label for="stance-select">姿態 STANCE</label>
-          <select id="stance-select">
+          <select id="stance-select" onchange="setGuideStep(1)">
             <option value="CHUDAN">中段之構 (Chudan)</option>
             <option value="JODAN">上段之構 (Jodan)</option>
             <option value="NITO">二刀流 (Nito)</option>
@@ -201,23 +234,27 @@
         </div>
         <div class="field">
           <label for="target-select">目標 TARGET</label>
-          <select id="target-select">
+          <select id="target-select" onchange="setGuideStep(1)">
             <option value="MEN">面 (Men)</option>
             <option value="DO">胴 (Do)</option>
             <option value="KOTE">小手 (Kote)</option>
           </select>
         </div>
         <div class="actions">
-          <button id="btn-rec" class="btn-record" type="button" onclick="toggleRecording()">開始錄製動作</button>
-          <button class="btn-submit" type="button" onclick="switchToReportPage()">產生診斷報告</button>
+          <button id="btn-rec" class="btn-record" type="button" onclick="toggleRecording()">① 開始錄製</button>
+          <button id="btn-report" class="btn-submit" type="button" onclick="switchToReportPage()" disabled>② 產生診斷報告</button>
         </div>
       </div>
     </div>
 
     <div class="video-wrap">
+      <div class="video-toolbar">
+        <button id="btn-flip-cam" class="btn-cam" type="button" onclick="switchCamera()">切換後鏡頭</button>
+      </div>
       <video id="webcam" playsinline muted style="display:none;"></video>
       <canvas id="output_canvas" width="640" height="480"></canvas>
     </div>
+    <p class="hint" id="cam-hint">提示：手機／平板練劍建議用<strong>後鏡頭</strong>拍全身。撳右上「切換後鏡頭」。首次使用請允許相機權限。</p>
 
     <div id="realtime-dashboard">
       <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
@@ -350,11 +387,118 @@
     pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
     pose.onResults(onResults);
 
-    const camera = new Camera(videoElement, {
-      onFrame: async () => { await pose.send({ image: videoElement }); },
-      width: 640, height: 480
-    });
-    camera.start();
+    // ===== Camera with front/back switch (iOS/Android) =====
+    let currentFacingMode = 'user'; // user=前鏡, environment=後鏡
+    let mediaStream = null;
+    let rafId = null;
+    let hasRecordedClip = false;
+
+    function setGuideStep(n) {
+      for (let i = 1; i <= 3; i++) {
+        const el = document.getElementById('step-' + i);
+        if (el) el.classList.toggle('active', i === n);
+      }
+    }
+
+    function updateFlipButtonLabel() {
+      const btn = document.getElementById('btn-flip-cam');
+      if (!btn) return;
+      btn.textContent = currentFacingMode === 'user' ? '切換後鏡頭' : '切換前鏡頭';
+      const hint = document.getElementById('cam-hint');
+      if (hint) {
+        hint.innerHTML = currentFacingMode === 'user'
+          ? '而家係<strong>前鏡頭</strong>。練劍建議切去<strong>後鏡頭</strong>拍全身。'
+          : '而家係<strong>後鏡頭</strong>。請將手機橫放或請人代拍，保持全身入鏡。';
+      }
+      // Mirror preview only for front camera (selfie); keep canvas unmirrored for analysis consistency via draw
+      canvasElement.classList.toggle('mirror', currentFacingMode === 'user');
+    }
+
+    async function stopCameraStream() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(function (t) { t.stop(); });
+        mediaStream = null;
+      }
+      videoElement.srcObject = null;
+    }
+
+    async function startCamera(facingMode) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('呢個瀏覽器唔支援相機。請用 Safari / Chrome。');
+        return;
+      }
+      await stopCameraStream();
+      currentFacingMode = facingMode || currentFacingMode;
+
+      const constraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: currentFacingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err1) {
+        // Fallback: some devices reject ideal facingMode object
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: currentFacingMode }
+          });
+        } catch (err2) {
+          console.error(err2);
+          alert('無法開啟相機：' + (err2.message || err2) + '\n請檢查權限，或改用另一個瀏覽器。');
+          return;
+        }
+      }
+
+      videoElement.srcObject = mediaStream;
+      videoElement.setAttribute('playsinline', 'true');
+      videoElement.muted = true;
+      await videoElement.play();
+      updateFlipButtonLabel();
+
+      const loop = async function () {
+        if (videoElement.readyState >= 2) {
+          try { await pose.send({ image: videoElement }); } catch (e) {}
+        }
+        rafId = requestAnimationFrame(loop);
+      };
+      rafId = requestAnimationFrame(loop);
+    }
+
+    async function switchCamera() {
+      if (isRecording) {
+        alert('請先停止錄影，再切換鏡頭。');
+        return;
+      }
+      const next = currentFacingMode === 'user' ? 'environment' : 'user';
+      const btn = document.getElementById('btn-flip-cam');
+      if (btn) { btn.disabled = true; btn.textContent = '切換中...'; }
+      try {
+        await startCamera(next);
+      } finally {
+        if (btn) btn.disabled = false;
+        updateFlipButtonLabel();
+      }
+    }
+
+    // Default: try back camera first on mobile for kendo practice; fallback to front
+    (async function initCam() {
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      try {
+        await startCamera(isMobile ? 'environment' : 'user');
+      } catch (e) {
+        await startCamera('user');
+      }
+      setGuideStep(1);
+    })();
+
+    window.switchCamera = switchCamera;
 
     // ==================== 錄影功能 (MediaRecorder) ====================
     function toggleRecording() {
@@ -374,20 +518,27 @@
         mediaRecorder.start();
         isRecording = true;
 
-        recBtn.innerText = "⏹ 停止錄製";
+        recBtn.innerText = "停止錄製";
         recBtn.className = "btn-stop";
         recStatus.innerText = "REC 錄影中...";
         recStatus.className = "status-tag rec-active";
+        setGuideStep(2);
+        const reportBtn = document.getElementById('btn-report');
+        if (reportBtn) reportBtn.disabled = true;
       } else {
         // 停止錄影
         mediaRecorder.stop();
         isRecording = false;
 
-        recBtn.innerText = "🔴 重新錄製";
+        recBtn.innerText = "重新錄製";
         recBtn.className = "btn-record";
-        recStatus.innerText = "錄影完成";
+        recStatus.innerText = "錄影完成，可以產生報告";
         recStatus.className = "status-tag";
-        recStatus.style.background = "#28a745";
+        recStatus.style.background = "#16a34a";
+        hasRecordedClip = true;
+        const reportBtn = document.getElementById('btn-report');
+        if (reportBtn) reportBtn.disabled = false;
+        setGuideStep(3);
       }
     }
 
@@ -409,6 +560,11 @@
 
     // ==================== SPA 頁面切換 ====================
     function switchToReportPage() {
+      if (!hasRecordedClip && !recordedVideoURL) {
+        alert('請先完成一次錄影，再產生診斷報告。');
+        return;
+      }
+      setGuideStep(3);
       const stance = document.getElementById('stance-select').value;
       const target = document.getElementById('target-select').value;
       const finalElbow = maxElbowAngleRecorded > 0 ? maxElbowAngleRecorded : currentMetrics.elbowAngle;

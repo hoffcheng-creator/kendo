@@ -165,6 +165,43 @@
     }
     .footer-actions { text-align: center; margin-top: 22px; }
 
+
+    .shutter-wrap {
+      position: absolute; left: 0; right: 0; bottom: 14px; z-index: 6;
+      display: flex; justify-content: center; align-items: center; gap: 18px;
+      pointer-events: none;
+    }
+    .shutter-btn {
+      pointer-events: auto;
+      width: 74px; height: 74px; min-height: 74px; min-width: 74px;
+      border-radius: 50%; padding: 0; width: 74px;
+      border: 3px solid rgba(255,255,255,0.92);
+      background: transparent;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+      display: grid; place-items: center;
+    }
+    .shutter-btn .inner {
+      width: 58px; height: 58px; border-radius: 50%;
+      background: #ef4444;
+      transition: all .15s ease;
+    }
+    .shutter-btn.recording .inner {
+      width: 28px; height: 28px; border-radius: 6px; background: #ef4444;
+    }
+    .shutter-side {
+      pointer-events: auto;
+      width: 44px; height: 44px; min-height: 44px; min-width: 44px; padding: 0;
+      border-radius: 50%; border: none;
+      background: rgba(0,0,0,0.55); color: #fff; font-size: 18px; font-weight: 700;
+    }
+    .rec-dot {
+      display: none; position: absolute; top: 12px; left: 12px; z-index: 6;
+      background: rgba(0,0,0,0.55); color: #fff; border-radius: 999px;
+      padding: 6px 10px; font-size: 12px; font-weight: 800; letter-spacing: 0.04em;
+    }
+    .rec-dot.on { display: inline-flex; align-items: center; gap: 6px; }
+    .rec-dot i { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; animation: blink 1s infinite; display: inline-block; }
+
     @media (max-width: 640px) {
       body { padding: 12px 12px calc(18px + var(--safe-bottom)); }
       .controls { grid-template-columns: 1fr; }
@@ -211,7 +248,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v4</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v5</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -240,19 +277,23 @@
             <option value="KOTE">小手 (Kote)</option>
           </select>
         </div>
-        <div class="actions">
-          <button id="btn-rec" class="btn-record" type="button" onclick="toggleRecording()">錄製</button>
+        <div class="actions" style="grid-template-columns:1fr;">
           <button id="btn-report" class="btn-submit" type="button" onclick="switchToReportPage()" disabled>診斷報告</button>
         </div>
       </div>
     </div>
 
     <div class="video-wrap">
-      <div class="video-toolbar">
-        <button id="btn-flip-cam" class="btn-cam" type="button" onclick="switchCamera()">後鏡頭</button>
-      </div>
+      <div class="rec-dot" id="rec-pill"><i></i>REC</div>
       <video id="webcam" playsinline muted style="display:none;"></video>
       <canvas id="output_canvas" width="640" height="480"></canvas>
+      <div class="shutter-wrap">
+        <button id="btn-flip-cam" class="shutter-side" type="button" onclick="switchCamera()" title="切換鏡頭">⟳</button>
+        <button id="btn-rec" class="shutter-btn" type="button" onclick="toggleRecording()" aria-label="錄製">
+          <span class="inner"></span>
+        </button>
+        <button id="btn-to-report" class="shutter-side" type="button" onclick="switchToReportPage()" title="診斷報告" disabled style="opacity:0.4;">✓</button>
+      </div>
     </div>
     <p class="hint" id="cam-hint">提示：手機／平板練劍建議用<strong>後鏡頭</strong>拍全身。撳右上「切換後鏡頭」。首次使用請允許相機權限。</p>
 
@@ -403,7 +444,7 @@
     function updateFlipButtonLabel() {
       const btn = document.getElementById('btn-flip-cam');
       if (!btn) return;
-      btn.textContent = currentFacingMode === 'user' ? '後鏡頭' : '前鏡頭';
+      btn.textContent = '⟳';
       const hint = document.getElementById('cam-hint');
       if (hint) {
         hint.innerHTML = currentFacingMode === 'user'
@@ -518,26 +559,36 @@
         mediaRecorder.start();
         isRecording = true;
 
-        recBtn.innerText = "停止";
-        recBtn.className = "btn-stop";
-        recStatus.innerText = "REC 錄影中...";
-        recStatus.className = "status-tag rec-active";
+        recBtn.classList.add('recording');
+        const pill = document.getElementById('rec-pill');
+        if (pill) pill.classList.add('on');
+        if (recStatus) {
+          recStatus.innerText = "錄影中 — 再撳圓掣停止";
+          recStatus.className = "status-tag rec-active";
+        }
         setGuideStep(2);
         const reportBtn = document.getElementById('btn-report');
+        const sideReport = document.getElementById('btn-to-report');
         if (reportBtn) reportBtn.disabled = true;
+        if (sideReport) { sideReport.disabled = true; sideReport.style.opacity = '0.4'; }
       } else {
         // 停止錄影
         mediaRecorder.stop();
         isRecording = false;
 
-        recBtn.innerText = "再錄";
-        recBtn.className = "btn-record";
-        recStatus.innerText = "錄影完成，可以產生報告";
-        recStatus.className = "status-tag";
-        recStatus.style.background = "#16a34a";
+        recBtn.classList.remove('recording');
+        const pill = document.getElementById('rec-pill');
+        if (pill) pill.classList.remove('on');
+        if (recStatus) {
+          recStatus.innerText = "完成 — 可撳「診斷報告」";
+          recStatus.className = "status-tag";
+          recStatus.style.background = "#16a34a";
+        }
         hasRecordedClip = true;
         const reportBtn = document.getElementById('btn-report');
+        const sideReport = document.getElementById('btn-to-report');
         if (reportBtn) reportBtn.disabled = false;
+        if (sideReport) { sideReport.disabled = false; sideReport.style.opacity = '1'; }
         setGuideStep(3);
       }
     }
@@ -625,7 +676,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=4').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=5').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

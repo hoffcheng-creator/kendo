@@ -295,9 +295,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const coach = payload.coachBaseline && typeof payload.coachBaseline === "object"
+    const coach = (payload.coachBaseline && typeof payload.coachBaseline === "object"
       ? payload.coachBaseline
-      : null;
+      : null) as CoachBaseline | null;
     const coachCompareLines: string[] = [];
     if (coach && coach.elbowAngle != null && coach.elbowAngle !== "") {
       const cMax = Number(coach.elbowAngle);

@@ -172,6 +172,12 @@
     }
 
     .coach-compare { margin-top: 12px; padding: 12px 14px; border-left: 4px solid #38bdf8; border-radius: 8px; background: rgba(56,189,248,0.08); font-size: 0.9rem; }
+    .pair-side-row { display: none; gap: 8px; margin-top: 8px; }
+    .pair-side-row.show { display: flex; flex-wrap: wrap; }
+    .pair-side-row button.active {
+      background: rgba(3,105,161,0.35); border-color: #38bdf8; color: #e0f2fe;
+    }
+
 
 
     .analysis-player-box {
@@ -299,7 +305,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v16</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v17</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -327,6 +333,17 @@
             <option value="DO">胴 (Do)</option>
             <option value="KOTE">小手 (Kote)</option>
           </select>
+        </div>
+        <div class="field">
+          <label for="practice-mode">練習模式</label>
+          <select id="practice-mode" onchange="onPracticeModeChange()">
+            <option value="solo">單人（素振／一人）</option>
+            <option value="pair">雙人（稽古／有元立ち）</option>
+          </select>
+        </div>
+        <div class="pair-side-row" id="pair-side-row">
+          <button type="button" class="btn-ghost active" id="btn-side-left" onclick="setPairSide('left')">我喺畫面左邊</button>
+          <button type="button" class="btn-ghost" id="btn-side-right" onclick="setPairSide('right')">我喺畫面右邊</button>
         </div>
         <div class="actions" style="grid-template-columns:1fr 1fr; gap:8px;">
           <button id="btn-coach-mode" class="btn-ghost" type="button" onclick="toggleCoachMode()">錄教練示範</button>
@@ -583,14 +600,33 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      if (results.image) {
+      // 永遠畫全畫面鏡頭；雙人模式 pose 只用半邊 crop，landmarks 要映射返全畫面
+      if (videoElement && videoElement.readyState >= 2) {
+        canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+      } else if (results.image) {
         canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      }
+
+      if (practiceMode === 'pair') {
+        const w = canvasElement.width, h = canvasElement.height;
+        canvasCtx.fillStyle = 'rgba(0,0,0,0.28)';
+        if (pairSide === 'left') canvasCtx.fillRect(w * 0.5, 0, w * 0.5, h);
+        else canvasCtx.fillRect(0, 0, w * 0.5, h);
+        canvasCtx.strokeStyle = 'rgba(56,189,248,0.9)';
+        canvasCtx.lineWidth = 2;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(w * 0.5, 0);
+        canvasCtx.lineTo(w * 0.5, h);
+        canvasCtx.stroke();
+        canvasCtx.fillStyle = 'rgba(56,189,248,0.9)';
+        canvasCtx.font = '14px sans-serif';
+        canvasCtx.fillText(pairSide === 'left' ? '鎖定：左邊（你）' : '鎖定：右邊（你）', 12, 22);
       }
 
       currentMetrics.shinaiLocked = false;
 
       if (results.poseLandmarks && results.poseLandmarks.length > 0) {
-        const landmarks = results.poseLandmarks;
+        const landmarks = mapLandmarksToFull(results.poseLandmarks);
         const check = isReliableHumanPose(landmarks);
         const shinai = estimateShinai(landmarks);
 
@@ -711,6 +747,11 @@
     let mediaStream = null;
     let rafId = null;
     let hasRecordedClip = false;
+    let practiceMode = 'solo'; // solo | pair
+    let pairSide = 'left';     // left | right — 雙人時鎖定邊半邊
+    const poseCropCanvas = document.createElement('canvas');
+    const poseCropCtx = poseCropCanvas.getContext('2d', { willReadFrequently: true });
+
 
     function setGuideStep(n) {
       for (let i = 1; i <= 3; i++) {
@@ -725,9 +766,16 @@
       btn.textContent = '⟳';
       const hint = document.getElementById('cam-hint');
       if (hint) {
-        hint.innerHTML = currentFacingMode === 'user'
-          ? '而家係<strong>前鏡頭</strong>。練劍建議切去<strong>後鏡頭</strong>拍全身。'
-          : '而家係<strong>後鏡頭</strong>。請將手機橫放或請人代拍，保持<strong>全身＋軀幹清楚入鏡</strong>，避免只拍竹刀。';
+        if (practiceMode === 'pair') {
+          const sideTxt = pairSide === 'left' ? '左邊' : '右邊';
+          hint.innerHTML = currentFacingMode === 'user'
+            ? '雙人模式：請切<strong>後鏡頭</strong>。你企畫面<strong>' + sideTxt + '</strong>，對手企另一邊；系統只鎖定你嗰半邊。'
+            : '雙人模式：你企畫面<strong>' + sideTxt + '</strong>，元立ち／對手企另一邊。半邊會變暗＝唔追蹤嗰邊。';
+        } else {
+          hint.innerHTML = currentFacingMode === 'user'
+            ? '而家係<strong>前鏡頭</strong>。練劍建議切去<strong>後鏡頭</strong>拍全身。'
+            : '而家係<strong>後鏡頭</strong>。請將手機橫放或請人代拍，保持<strong>全身＋軀幹清楚入鏡</strong>，避免只拍竹刀。';
+        }
       }
       // Mirror preview only for front camera (selfie); keep canvas unmirrored for analysis consistency via draw
       canvasElement.classList.toggle('mirror', currentFacingMode === 'user');
@@ -783,7 +831,21 @@
 
       const loop = async function () {
         if (videoElement.readyState >= 2) {
-          try { await pose.send({ image: videoElement }); } catch (e) {}
+          try {
+            if (practiceMode === 'pair') {
+              const vw = videoElement.videoWidth || 640;
+              const vh = videoElement.videoHeight || 480;
+              const half = Math.floor(vw / 2);
+              poseCropCanvas.width = half;
+              poseCropCanvas.height = vh;
+              poseCropCtx.clearRect(0, 0, half, vh);
+              const sx = pairSide === 'right' ? half : 0;
+              poseCropCtx.drawImage(videoElement, sx, 0, half, vh, 0, 0, half, vh);
+              await pose.send({ image: poseCropCanvas });
+            } else {
+              await pose.send({ image: videoElement });
+            }
+          } catch (e) {}
         }
         rafId = requestAnimationFrame(loop);
       };
@@ -815,6 +877,8 @@
         await startCamera('user');
       }
       setGuideStep(1);
+      if (typeof refreshCoachBaselineUI === "function") refreshCoachBaselineUI();
+      onPracticeModeChange();
     })();
 
     window.switchCamera = switchCamera;
@@ -1115,7 +1179,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=16').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=17').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

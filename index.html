@@ -2,112 +2,249 @@
 <html lang="zh-HK">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 劍道動作分析系統 (錄影分析版)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AI 劍道動作分析</title>
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="description" content="AI 劍道動作分析 — MediaPipe 骨架捕捉與 Gemini 診斷">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="劍道 AI">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="劍道 AI">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
+    :root {
+      --bg: #070a0e;
+      --bg-elev: #121821;
+      --bg-card: #18212c;
+      --line: rgba(255,255,255,0.08);
+      --text: #f3f6fa;
+      --muted: #9aa8b8;
+      --accent: #e11d48;
+      --accent-2: #38bdf8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --radius: 16px;
+      --shadow: 0 12px 40px rgba(0,0,0,0.45);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", "PingFang HK", "Noto Sans TC", system-ui, sans-serif;
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(225,29,72,0.18), transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, rgba(56,189,248,0.12), transparent 50%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      padding: 16px 16px calc(24px + var(--safe-bottom));
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.35rem, 4vw, 1.85rem);
+      letter-spacing: 0.02em;
+      font-weight: 750;
+    }
+    .subtitle { color: var(--muted); margin: 0 0 18px; font-size: 0.95rem; }
     .page { display: none; }
-    .active-page { display: block; }
-    .controls { background: #2a2a2a; padding: 15px; border-radius: 8px; display: inline-block; margin-bottom: 15px; }
-    select, button { font-size: 16px; padding: 10px 18px; margin: 5px; border-radius: 5px; border: none; cursor: pointer; }
-    select { background: #444; color: white; }
-    
-    .btn-record { background: #dc3545; color: white; font-weight: bold; }
-    .btn-stop { background: #ffc107; color: #000; font-weight: bold; }
-    .btn-submit { background: #28a745; color: white; font-weight: bold; }
-    .btn-back { background: #007bff; color: white; padding: 10px 24px; font-size: 16px; border-radius: 6px; }
+    .active-page { display: block; animation: fade .25s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-    .video-container { position: relative; width: 640px; height: 480px; margin: 0 auto; border: 2px solid #555; border-radius: 8px; overflow: hidden; background: #000; }
-    video, canvas { position: absolute; left: 0; top: 0; width: 640px; height: 480px; }
-    
-    #realtime-dashboard { width: 640px; margin: 15px auto 0; background: #2a2a2a; padding: 15px; border-radius: 8px; text-align: left; box-sizing: border-box; }
-    .metric-realtime { font-size: 18px; color: #00ffcc; margin: 5px 0; }
-    .status-tag { font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 14px; }
-    .rec-active { background: #dc3545; color: #fff; animation: blink 1s infinite; }
-    @keyframes blink { 50% { opacity: 0.5; } }
+    .shell { max-width: 920px; margin: 0 auto; }
+    .topbar {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .brand {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+      padding: 8px 12px; border-radius: 999px; color: var(--muted); font-size: 13px;
+    }
+    .brand b { color: var(--text); }
 
-    /* Page 2 報告頁專用樣式 */
-    .report-container { max-width: 850px; margin: 0 auto; background: #1e1e1e; border-radius: 12px; padding: 30px; border: 1px solid #333; text-align: left; }
-    .report-container h1 { text-align: center; color: #fff; border-bottom: 2px solid #007bff; padding-bottom: 10px; margin-top: 0; }
-    .badge-container { text-align: center; margin-bottom: 20px; }
-    .badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-weight: bold; background: #007bff; color: white; margin: 0 5px; }
-    
-    .section-title { font-size: 20px; font-weight: bold; color: #ffc107; margin-top: 25px; margin-bottom: 12px; border-left: 4px solid #ffc107; padding-left: 10px; }
-    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
-    .metric-card { background: #2a2a2a; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #444; }
-    .metric-value { font-size: 26px; font-weight: bold; color: #00ffcc; margin: 5px 0; }
-    
-    .info-card { background: #252830; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #007bff; line-height: 1.6; }
-    .practice-card { background: #1c2d27; padding: 20px; border-radius: 8px; border-left: 4px solid #28a745; line-height: 1.6; }
-    
-    /* 動作分析播放器樣式 */
-    .analysis-player-box { background: #000; width: 640px; height: 480px; margin: 15px auto; border-radius: 8px; position: relative; overflow: hidden; border: 2px solid #007bff; }
-    .video-controls { text-align: center; margin-bottom: 20px; }
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%), var(--bg-elev);
+      border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 16px; margin-bottom: 16px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      align-items: end;
+    }
+    .field { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; }
+    select, button {
+      font: inherit; min-height: 48px; border-radius: 12px; border: 1px solid var(--line);
+      padding: 12px 14px; width: 100%;
+    }
+    select {
+      background: var(--bg-card); color: var(--text); appearance: none;
+      background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 12px) calc(50% - 3px);
+      background-size: 6px 6px, 6px 6px; background-repeat: no-repeat;
+    }
+    .actions {
+      grid-column: 1 / -1;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+    button { cursor: pointer; font-weight: 700; transition: transform .08s ease, opacity .15s ease; }
+    button:active { transform: scale(0.98); }
+    .btn-record { background: var(--accent); color: #fff; border-color: transparent; }
+    .btn-stop { background: var(--warn); color: #111; border-color: transparent; }
+    .btn-submit { background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #fff; border-color: transparent; }
+    .btn-back { background: transparent; color: var(--text); }
+    .btn-ghost { background: var(--bg-card); color: var(--text); }
+
+    .video-wrap {
+      width: 100%; max-width: 640px; margin: 0 auto;
+      aspect-ratio: 4 / 3;
+      position: relative; border-radius: 14px; overflow: hidden;
+      border: 1px solid var(--line); background: #000;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+    }
+    .video-wrap video, .video-wrap canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: contain; background: #000;
+    }
+
+    #realtime-dashboard {
+      width: 100%; max-width: 640px; margin: 14px auto 0;
+      display: grid; grid-template-columns: 1fr; gap: 8px; text-align: left;
+    }
+    .metric-realtime {
+      background: var(--bg-card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; font-size: 15px; color: var(--accent-2);
+    }
+    .status-tag { font-weight: 800; padding: 4px 10px; border-radius: 999px; font-size: 12px; display: inline-block; }
+    .rec-active { background: var(--accent); color: #fff; animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: 0.55; } }
+
+    .report-container { text-align: left; }
+    .report-container h1 { text-align: center; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+    .badge-container { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 14px 0 18px; }
+    .badge {
+      display: inline-block; padding: 8px 14px; border-radius: 999px; font-weight: 700; font-size: 13px;
+      background: rgba(37,99,235,0.25); color: #dbeafe; border: 1px solid rgba(59,130,246,0.35);
+    }
+    .section-title {
+      font-size: 1.05rem; font-weight: 800; color: var(--warn);
+      margin: 22px 0 12px; padding-left: 12px; border-left: 4px solid var(--warn);
+    }
+    .metrics-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px;
+    }
+    .metric-card {
+      background: var(--bg-card); padding: 16px; border-radius: 14px; text-align: center;
+      border: 1px solid var(--line);
+    }
+    .metric-card > div:first-child { color: var(--muted); font-size: 13px; }
+    .metric-value { font-size: clamp(1.4rem, 5vw, 1.8rem); font-weight: 800; color: var(--accent-2); margin-top: 6px; }
+    .info-card, .practice-card {
+      background: var(--bg-card); padding: 16px 18px; border-radius: 14px; margin-bottom: 14px;
+      line-height: 1.65; border: 1px solid var(--line);
+    }
+    .info-card { border-left: 4px solid #3b82f6; }
+    .practice-card { border-left: 4px solid var(--ok); }
+    .analysis-player-box {
+      width: 100%; max-width: 640px; margin: 0 auto 12px; aspect-ratio: 4 / 3;
+      position: relative; overflow: hidden; border-radius: 14px; border: 1px solid rgba(59,130,246,0.45);
+      background: #000;
+    }
+    .analysis-player-box video { width: 100%; height: 100%; object-fit: contain; }
+    .video-controls {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px;
+    }
+    .footer-actions { text-align: center; margin-top: 22px; }
+
+    @media (max-width: 640px) {
+      body { padding: 12px 12px calc(18px + var(--safe-bottom)); }
+      .controls { grid-template-columns: 1fr; }
+      .actions { grid-template-columns: 1fr; }
+      .metrics-grid { grid-template-columns: 1fr; }
+      .video-controls { grid-template-columns: 1fr; }
+    }
+    @media (min-width: 900px) {
+      .panel-tight { padding: 20px; }
+    }
   </style>
 </head>
 <body>
+  <div class="shell">
 
-  <!-- ==================== Page 1: 鏡頭與錄影頁 ==================== -->
   <div id="page-1" class="page active-page">
-    <h1>AI 劍道動作分析系統 (錄影與即時捕捉)</h1>
-
-    <div class="controls">
-      <label>姿態：</label>
-      <select id="stance-select">
-        <option value="CHUDAN">中段之構 (Chudan)</option>
-        <option value="JODAN">上段之構 (Jodan)</option>
-        <option value="NITO">二刀流 (Nito)</option>
-      </select>
-      
-      <label>目標：</label>
-      <select id="target-select">
-        <option value="MEN">面 (Men)</option>
-        <option value="DO">胴 (Do)</option>
-        <option value="KOTE">小手 (Kote)</option>
-      </select>
-      
-      <button id="btn-rec" class="btn-record" onclick="toggleRecording()">🔴 開始錄製動作</button>
-      <button class="btn-submit" onclick="switchToReportPage()">產生診斷報告 📊</button>
+    <div class="topbar">
+      <div>
+        <h1>AI 劍道動作分析</h1>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷</p>
+      </div>
+      <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
 
-    <div class="video-container">
-      <video id="webcam" playsinline style="display:none;"></video>
+    <div class="panel panel-tight">
+      <div class="controls">
+        <div class="field">
+          <label for="stance-select">姿態 STANCE</label>
+          <select id="stance-select">
+            <option value="CHUDAN">中段之構 (Chudan)</option>
+            <option value="JODAN">上段之構 (Jodan)</option>
+            <option value="NITO">二刀流 (Nito)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="target-select">目標 TARGET</label>
+          <select id="target-select">
+            <option value="MEN">面 (Men)</option>
+            <option value="DO">胴 (Do)</option>
+            <option value="KOTE">小手 (Kote)</option>
+          </select>
+        </div>
+        <div class="actions">
+          <button id="btn-rec" class="btn-record" type="button" onclick="toggleRecording()">開始錄製動作</button>
+          <button class="btn-submit" type="button" onclick="switchToReportPage()">產生診斷報告</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="video-wrap">
+      <video id="webcam" playsinline muted style="display:none;"></video>
       <canvas id="output_canvas" width="640" height="480"></canvas>
     </div>
 
     <div id="realtime-dashboard">
-      <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#555;">等待錄製</span></div>
+      <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
       <div class="metric-realtime" id="rt-metric-elbow">右手肘角度：0°</div>
       <div class="metric-realtime" id="rt-metric-wrist">雙手高度差：0.000</div>
     </div>
   </div>
 
-  <!-- ==================== Page 2: 診斷報告與動作重播頁 ==================== -->
   <div id="page-2" class="page">
-    <div class="report-container">
+    <div class="panel report-container panel-tight">
       <h1>劍道 AI 動作綜合診斷報告</h1>
-      
       <div class="badge-container">
         <span class="badge" id="report-stance">姿態：-</span>
-        <span class="badge" id="report-target" style="background:#6c757d;">目標：-</span>
+        <span class="badge" id="report-target">目標：-</span>
       </div>
 
-      <!-- 1. 動作重播與姿態分析 (新增功能) -->
-      <div class="section-title">🎥 1. 動作錄影慢動作重播與姿勢回放</div>
+      <div class="section-title">1. 動作錄影慢動作重播</div>
       <div class="analysis-player-box">
-        <video id="replay-video" controls width="640" height="480"></video>
+        <video id="replay-video" controls playsinline></video>
       </div>
       <div class="video-controls">
-        <button onclick="setPlaySpeed(0.5)">0.5x 慢速播放</button>
-        <button onclick="setPlaySpeed(1.0)">1.0x 正常速度</button>
-        <button onclick="pauseAtPeak()">📌 跳至關鍵打擊瞬間</button>
+        <button class="btn-ghost" type="button" onclick="setPlaySpeed(0.5)">0.5x 慢速</button>
+        <button class="btn-ghost" type="button" onclick="setPlaySpeed(1.0)">1.0x 正常</button>
+        <button class="btn-ghost" type="button" onclick="pauseAtPeak()">跳至關鍵瞬間</button>
       </div>
 
-      <!-- 2. 即時數據回饋 -->
-      <div class="section-title">⚡ 2. 關鍵打擊數據分析</div>
+      <div class="section-title">2. 關鍵打擊數據</div>
       <div class="metrics-grid">
         <div class="metric-card">
           <div>最大揮刀手肘角度</div>
@@ -119,25 +256,22 @@
         </div>
       </div>
 
-      <!-- 3. AI 改善建議 -->
-      <div class="section-title">🔍 3. AI 姿勢診斷與改善建議</div>
-      <div class="info-card">
-        <div id="ai-diagnosis-text">正在生成診斷中...</div>
-      </div>
+      <div class="section-title">3. AI 姿勢診斷與改善建議</div>
+      <div class="info-card"><div id="ai-diagnosis-text">正在生成診斷中...</div></div>
 
-      <!-- 4. 自主練習建議 -->
-      <div class="section-title">🏋️ 4. 針對性自主練習菜單</div>
-      <div class="practice-card">
-        <div id="ai-practice-text">正在生成練習菜單...</div>
-      </div>
+      <div class="section-title">4. 針對性自主練習菜單</div>
+      <div class="practice-card"><div id="ai-practice-text">正在生成練習菜單...</div></div>
 
-      <div style="text-align: center; margin-top: 30px;">
-        <button class="btn-back" onclick="switchToCameraPage()">重新錄製 / 返回鏡頭 🔄</button>
+      <div class="footer-actions">
+        <button class="btn-back btn-ghost" type="button" onclick="switchToCameraPage()" style="max-width:320px;margin:0 auto;">重新錄製 / 返回鏡頭</button>
       </div>
     </div>
   </div>
 
+  </div>
+
   <script>
+
 
     // ===== Supabase Edge Function =====
     const SUPABASE_URL = 'https://iyabvbrznxfbcnltvhfc.supabase.co';
@@ -329,6 +463,16 @@
         diagnosisEl.innerHTML = '<p style="color:#ff6b6b;">AI 診斷失敗：' + (err.message || err) + '</p>';
         practiceEl.innerHTML = '<p>請稍後再試，或檢查 Edge Function / Gemini Key 設定。</p>';
       }
+    }
+  
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./sw.js').catch(function (err) {
+          console.warn('SW registration failed:', err);
+        });
+      });
     }
   </script>
 </body>

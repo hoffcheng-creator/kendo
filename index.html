@@ -155,11 +155,6 @@
     }
     .info-card { border-left: 4px solid #3b82f6; }
     .practice-card { border-left: 4px solid var(--ok); }
-    .ref-videos { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,0.03); }
-    .ref-videos h3 { margin: 0 0 8px; font-size: 1rem; }
-    .ref-videos p { margin: 0 0 10px; color: var(--muted); font-size: 0.85rem; }
-    .ref-videos a { display: block; color: #8ec8ff; text-decoration: none; margin: 6px 0; font-size: 0.92rem; line-height: 1.35; }
-    .ref-videos a:hover { text-decoration: underline; }
     .benchmark-card { margin-top: 12px; padding: 12px 14px; border-left: 4px solid #c9a227; border-radius: 8px; background: rgba(201,162,39,0.08); font-size: 0.9rem; }
     .coach-panel {
       margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
@@ -304,7 +299,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v12</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v13</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -406,28 +401,6 @@
 
       <div class="coach-compare" id="coach-compare-notes">教練標準對照將於診斷後顯示（若已儲存示範）。</div>
       <div class="benchmark-card" id="benchmark-notes">文獻對照將於診斷後顯示。</div>
-
-      <div class="ref-videos">
-        <h3>參考影片與解說</h3>
-        <p>公開教學資源，供對照學習；系統唔會自動分析片／雜誌全文。</p>
-        <p style="margin-bottom:4px;">YouTube</p>
-        <a href="https://www.youtube.com/watch?v=MwPqKjLozyM" target="_blank" rel="noopener noreferrer">① 返し胴 4 種類解説 — 小幡兄弟の剣道channel</a>
-        <a href="https://www.youtube.com/watch?v=-EGzCr7dWdI" target="_blank" rel="noopener noreferrer">② 出鼻面 5 種類解説 — 小幡兄弟の剣道channel</a>
-        <p style="margin-top:12px;margin-bottom:4px;">《劍道時代》解說</p>
-        <a href="https://kendojidai.com/2020/01/13/koda-kunihides-l2/" target="_blank" rel="noopener noreferrer">③ 香田郡秀（筑波）：仕かけ面 — 左手控中心、打突打ち切る</a>
-        <a href="https://kendojidai.net/2020/02/10/koda-kunihide-l2-2/" target="_blank" rel="noopener noreferrer">④ 香田郡秀：仕かけて小手 — 細小快速、右手唔好舉得太高</a>
-        <a href="https://kendojidai.com/2021/10/18/refining-men-strikes-part-1/" target="_blank" rel="noopener noreferrer">⑤ 面打精煉：大動作正打、姿勢穩定</a>
-        <a href="https://kendojidai.net/2025/08/25/the-technique-of-striking-in-one-breath-miyazaki-fumihiro/" target="_blank" rel="noopener noreferrer">⑥ 宮崎史裕：一拍子打突、左手主導、双手協調（冴え）</a>
-        <p style="margin-top:12px;margin-bottom:4px;">文獻（標準動作模型）</p>
-        <a href="https://www.jstage.jst.go.jp/article/budo1968/33/3/33_39/_pdf" target="_blank" rel="noopener noreferrer">正面打撃の標準的3次元動作モデル（横山・百鬼・久保等）</a>
-        <a href="https://archbudo.eu/images/Fulltext/2025/285-296_Murase_et_al_Arch_Budo_2025.pdf" target="_blank" rel="noopener noreferrer">八段面打關節角度時間序列（Murase 等, Arch Budo 2025）</a>
-        <p style="margin-top:12px;margin-bottom:4px;">大學研究（日體大・鹿屋・國際武道大）</p>
-        <a href="https://nifs-k.repo.nii.ac.jp/records/801" target="_blank" rel="noopener noreferrer">⑦ 鹿屋體大・竹中：打突與踏み込み時間差嘅指導法</a>
-        <a href="https://www.jstage.jst.go.jp/article/rjsp/14/0/14_2159/_article/-char/ja" target="_blank" rel="noopener noreferrer">⑧ 鹿屋體大・竹中等：踵痛／踏込動作・地面反力・聲音</a>
-        <a href="https://doi.org/10.11214/budo1968.18.2_45" target="_blank" rel="noopener noreferrer">⑨ 日本體大・袴田等：正面打「間のつめ」</a>
-        <a href="http://www.budo-u.ac.jp/laboratory/transaction/" target="_blank" rel="noopener noreferrer">⑩ 國際武道大學研究紀要／機關 repo</a>
-        <a href="https://doi.org/10.11214/budo1968.28.2_26" target="_blank" rel="noopener noreferrer">⑪ 國際武道大・大矢等：二刀構え打擊動作</a>
-      </div>
 
       <div class="footer-actions">
         <button class="btn-back btn-ghost" type="button" onclick="switchToCameraPage()" style="max-width:320px;margin:0 auto;">返回</button>
@@ -932,7 +905,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=12').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=13').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

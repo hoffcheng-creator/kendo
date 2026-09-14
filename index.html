@@ -305,7 +305,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v17</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v18</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -342,8 +342,9 @@
           </select>
         </div>
         <div class="pair-side-row" id="pair-side-row">
-          <button type="button" class="btn-ghost active" id="btn-side-left" onclick="setPairSide('left')">我喺畫面左邊</button>
-          <button type="button" class="btn-ghost" id="btn-side-right" onclick="setPairSide('right')">我喺畫面右邊</button>
+          <button type="button" class="btn-ghost active" id="btn-side-auto" onclick="setPairTrackMode('auto')">智能追蹤</button>
+          <button type="button" class="btn-ghost" id="btn-side-left" onclick="setPairTrackMode('left')">鎖定左邊</button>
+          <button type="button" class="btn-ghost" id="btn-side-right" onclick="setPairTrackMode('right')">鎖定右邊</button>
         </div>
         <div class="actions" style="grid-template-columns:1fr 1fr; gap:8px;">
           <button id="btn-coach-mode" class="btn-ghost" type="button" onclick="toggleCoachMode()">錄教練示範</button>
@@ -475,6 +476,161 @@
       return Math.sqrt(dx * dx + dy * dy);
     }
 
+    function mapLandmarkToFull(lm) {
+      if (!lm) return lm;
+      if (practiceMode !== 'pair') return lm;
+      if (pairSide === 'left') {
+        return { x: (lm.x || 0) * 0.5, y: lm.y, visibility: lm.visibility, z: lm.z };
+      }
+      return { x: 0.5 + (lm.x || 0) * 0.5, y: lm.y, visibility: lm.visibility, z: lm.z };
+    }
+
+    function mapLandmarksToFull(landmarks) {
+      if (!landmarks || practiceMode !== 'pair') return landmarks;
+      return landmarks.map(mapLandmarkToFull);
+    }
+
+    function scoreCropPose(landmarks) {
+      if (!landmarks || landmarks.length < 25) return 0;
+      const check = isReliableHumanPose(landmarks);
+      const shinai = estimateShinai(landmarks);
+      let score = 0;
+      const keys = [11, 12, 13, 14, 15, 16, 23, 24];
+      let visSum = 0;
+      for (let i = 0; i < keys.length; i++) visSum += lmVis(landmarks[keys[i]]);
+      score += (visSum / keys.length) * 25;
+      if (check.ok) score += 35;
+      else if (check.reason === 'arms') score += 10;
+      else if (check.reason === 'torso') score += 5;
+      if (shinai && shinai.ok) score += 40;
+      else if (shinai && shinai.reason === 'grip') score += 8;
+      const ls = landmarks[11], rs = landmarks[12], lh = landmarks[23], rh = landmarks[24];
+      if (ls && rs) {
+        const shoulderW = Math.abs((ls.x || 0) - (rs.x || 0));
+        score += Math.min(20, shoulderW * 80);
+      }
+      if (ls && rs && (lh || rh)) {
+        const shY = ((ls.y || 0) + (rs.y || 0)) / 2;
+        const hip = lmVis(lh) >= lmVis(rh) ? lh : rh;
+        const torsoH = Math.abs((hip.y || 0) - shY);
+        score += Math.min(15, torsoH * 40);
+      }
+      return score;
+    }
+
+    function syncPairSideButtons() {
+      const a = document.getElementById('btn-side-auto');
+      const l = document.getElementById('btn-side-left');
+      const r = document.getElementById('btn-side-right');
+      if (a) a.classList.toggle('active', pairTrackMode === 'auto');
+      if (l) l.classList.toggle('active', pairTrackMode === 'left');
+      if (r) r.classList.toggle('active', pairTrackMode === 'right');
+    }
+
+    function onPracticeModeChange() {
+      const sel = document.getElementById('practice-mode');
+      practiceMode = (sel && sel.value) || 'solo';
+      const row = document.getElementById('pair-side-row');
+      if (row) row.classList.toggle('show', practiceMode === 'pair');
+      if (practiceMode === 'pair') {
+        if (pairTrackMode === 'auto') {
+          pairAutoLocked = false;
+          lastPairEvalMs = 0;
+        }
+      }
+      syncPairSideButtons();
+      updateFlipButtonLabel();
+    }
+
+    function setPairTrackMode(mode) {
+      if (mode === 'auto') {
+        pairTrackMode = 'auto';
+        pairAutoLocked = false;
+        lastPairEvalMs = 0;
+      } else {
+        pairTrackMode = mode === 'right' ? 'right' : 'left';
+        pairSide = pairTrackMode;
+        pairAutoLocked = true;
+      }
+      syncPairSideButtons();
+      updateFlipButtonLabel();
+    }
+
+    // 兼容舊 onclick（若有）
+    function setPairSide(side) {
+      setPairTrackMode(side === 'right' ? 'right' : 'left');
+    }
+
+    function waitPoseResult(timeoutMs) {
+      return new Promise(function (resolve) {
+        var done = false;
+        var timer = setTimeout(function () {
+          if (done) return;
+          done = true;
+          if (poseResultWaiter === resolver) poseResultWaiter = null;
+          resolve(null);
+        }, timeoutMs || 450);
+        function resolver(results) {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(results);
+        }
+        poseResultWaiter = resolver;
+      });
+    }
+
+    function drawPairCrop(side) {
+      const vw = videoElement.videoWidth || 640;
+      const vh = videoElement.videoHeight || 480;
+      const half = Math.max(1, Math.floor(vw / 2));
+      poseCropCanvas.width = half;
+      poseCropCanvas.height = vh;
+      poseCropCtx.clearRect(0, 0, half, vh);
+      const sx = side === 'right' ? (vw - half) : 0;
+      poseCropCtx.drawImage(videoElement, sx, 0, half, vh, 0, 0, half, vh);
+      return poseCropCanvas;
+    }
+
+    async function evaluatePairSides() {
+      skipOnResultsDraw = true;
+      try {
+        drawPairCrop('left');
+        var pLeft = waitPoseResult(500);
+        await pose.send({ image: poseCropCanvas });
+        var rLeft = await pLeft;
+        var sLeft = (rLeft && rLeft.poseLandmarks) ? scoreCropPose(rLeft.poseLandmarks) : 0;
+
+        drawPairCrop('right');
+        var pRight = waitPoseResult(500);
+        await pose.send({ image: poseCropCanvas });
+        var rRight = await pRight;
+        var sRight = (rRight && rRight.poseLandmarks) ? scoreCropPose(rRight.poseLandmarks) : 0;
+
+        pairSideScores = { left: sLeft, right: sRight };
+        var best = sLeft >= sRight ? 'left' : 'right';
+        var bestScore = Math.max(sLeft, sRight);
+        var otherScore = Math.min(sLeft, sRight);
+
+        if (!pairAutoLocked) {
+          if (bestScore >= 22) {
+            pairSide = best;
+            pairAutoLocked = true;
+          } else if (bestScore > 0) {
+            pairSide = best;
+          }
+        } else if (bestScore >= otherScore + PAIR_SWITCH_MARGIN && bestScore >= 28) {
+          pairSide = best;
+        } else if ((pairSideScores[pairSide] || 0) < 16 && bestScore >= 30) {
+          pairSide = best;
+        }
+      } finally {
+        skipOnResultsDraw = false;
+        lastPairEvalMs = Date.now();
+      }
+    }
+
+
     // 要求軀幹＋手臂關鍵點夠清楚，避免追錯竹刀／傢俬／背景
     function isReliableHumanPose(landmarks) {
       if (!landmarks || landmarks.length < 25) return { ok: false, reason: 'no_pose' };
@@ -597,6 +753,13 @@
     }
 
     function onResults(results) {
+      if (poseResultWaiter) {
+        const waiter = poseResultWaiter;
+        poseResultWaiter = null;
+        waiter(results);
+      }
+      if (skipOnResultsDraw) return;
+
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
@@ -620,7 +783,15 @@
         canvasCtx.stroke();
         canvasCtx.fillStyle = 'rgba(56,189,248,0.9)';
         canvasCtx.font = '14px sans-serif';
-        canvasCtx.fillText(pairSide === 'left' ? '鎖定：左邊（你）' : '鎖定：右邊（你）', 12, 22);
+        let lockLabel;
+        if (pairTrackMode === 'auto') {
+          lockLabel = pairAutoLocked
+            ? ('智能鎖定：' + (pairSide === 'left' ? '左邊' : '右邊'))
+            : '智能追蹤：搜尋中…';
+        } else {
+          lockLabel = '手動鎖定：' + (pairSide === 'left' ? '左邊' : '右邊');
+        }
+        canvasCtx.fillText(lockLabel, 12, 22);
       }
 
       currentMetrics.shinaiLocked = false;
@@ -748,7 +919,16 @@
     let rafId = null;
     let hasRecordedClip = false;
     let practiceMode = 'solo'; // solo | pair
-    let pairSide = 'left';     // left | right — 雙人時鎖定邊半邊
+    let pairTrackMode = 'auto'; // auto | left | right
+    let pairSide = 'left';     // 實際追蹤邊半邊
+    let pairAutoLocked = false;
+    let pairSideScores = { left: 0, right: 0 };
+    let lastPairEvalMs = 0;
+    let poseLoopBusy = false;
+    let poseResultWaiter = null;
+    let skipOnResultsDraw = false;
+    const PAIR_EVAL_INTERVAL_MS = 900;
+    const PAIR_SWITCH_MARGIN = 12;
     const poseCropCanvas = document.createElement('canvas');
     const poseCropCtx = poseCropCanvas.getContext('2d', { willReadFrequently: true });
 
@@ -768,9 +948,12 @@
       if (hint) {
         if (practiceMode === 'pair') {
           const sideTxt = pairSide === 'left' ? '左邊' : '右邊';
+          const modeTxt = pairTrackMode === 'auto'
+            ? '預設<strong>智能追蹤</strong>（比兩邊邊個似持劍者），亦可手動鎖定。'
+            : '而家<strong>手動鎖定' + sideTxt + '</strong>。';
           hint.innerHTML = currentFacingMode === 'user'
-            ? '雙人模式：請切<strong>後鏡頭</strong>。你企畫面<strong>' + sideTxt + '</strong>，對手企另一邊；系統只鎖定你嗰半邊。'
-            : '雙人模式：你企畫面<strong>' + sideTxt + '</strong>，元立ち／對手企另一邊。半邊會變暗＝唔追蹤嗰邊。';
+            ? '雙人模式：請切<strong>後鏡頭</strong>。' + modeTxt
+            : '雙人模式：兩人左右企開。' + modeTxt + ' 半邊變暗＝唔追蹤嗰邊。';
         } else {
           hint.innerHTML = currentFacingMode === 'user'
             ? '而家係<strong>前鏡頭</strong>。練劍建議切去<strong>後鏡頭</strong>拍全身。'
@@ -830,22 +1013,25 @@
       updateFlipButtonLabel();
 
       const loop = async function () {
+        if (poseLoopBusy) {
+          rafId = requestAnimationFrame(loop);
+          return;
+        }
         if (videoElement.readyState >= 2) {
+          poseLoopBusy = true;
           try {
             if (practiceMode === 'pair') {
-              const vw = videoElement.videoWidth || 640;
-              const vh = videoElement.videoHeight || 480;
-              const half = Math.floor(vw / 2);
-              poseCropCanvas.width = half;
-              poseCropCanvas.height = vh;
-              poseCropCtx.clearRect(0, 0, half, vh);
-              const sx = pairSide === 'right' ? half : 0;
-              poseCropCtx.drawImage(videoElement, sx, 0, half, vh, 0, 0, half, vh);
+              const now = Date.now();
+              if (pairTrackMode === 'auto' && (now - lastPairEvalMs > PAIR_EVAL_INTERVAL_MS || !pairAutoLocked)) {
+                await evaluatePairSides();
+              }
+              drawPairCrop(pairSide);
               await pose.send({ image: poseCropCanvas });
             } else {
               await pose.send({ image: videoElement });
             }
           } catch (e) {}
+          poseLoopBusy = false;
         }
         rafId = requestAnimationFrame(loop);
       };
@@ -882,6 +1068,9 @@
     })();
 
     window.switchCamera = switchCamera;
+    window.onPracticeModeChange = onPracticeModeChange;
+    window.setPairTrackMode = setPairTrackMode;
+    window.setPairSide = setPairSide;
 
 
     // ==================== 教練示範標準 ====================
@@ -1179,7 +1368,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=17').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=18').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

@@ -72,6 +72,118 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }, 500);
     }
 
+
+    const payload = (await req.json()) as Record<string, unknown>;
+
+    // ---- AI 追蹤：看畫面判斷持劍者在左／右半邊（唔寫 DB）----
+    if (payload.action === "track" || payload.mode === "track") {
+      const imageBase64 = String(payload.imageBase64 ?? payload.image ?? "").replace(
+        /^data:image\/\w+;base64,/,
+        "",
+      ).trim();
+      const mimeType = String(payload.mimeType ?? "image/jpeg").trim() || "image/jpeg";
+      if (!imageBase64 || imageBase64.length < 80) {
+        return jsonResponse({ error: "Missing imageBase64 for track" }, 400);
+      }
+      // 限制體積，避免過大 payload
+      if (imageBase64.length > 1_800_000) {
+        return jsonResponse({ error: "imageBase64 too large" }, 413);
+      }
+
+      const trackEndpoint =
+        "https://generativelanguage.googleapis.com/v1beta/models/" +
+        `gemini-3.6-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+
+      const trackPrompt =
+        "這是劍道雙人稽古的相機畫面（左右並排兩人）。" +
+        "請判斷『主要持竹刀、正在打突／準備打突的練習者』在畫面的哪一半。" +
+        "規則：" +
+        "1) side 以相機畫面為準：left=左半邊，right=右半邊；" +
+        "2) 優先選明顯握住竹刀／劍尖可見／中段之構的人；" +
+        "3) 若一人面向鏡頭持劍、另一人較像元立ち／對手，選持劍練習者；" +
+        "4) 只回 JSON：{\"side\":\"left\"|\"right\",\"confidence\":0到1,\"reason\":\"一句繁中\"}。";
+
+      const trackRes = await fetch(trackEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: trackPrompt },
+              { inlineData: { mimeType, data: imageBase64 } },
+            ],
+          }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.1,
+          },
+        }),
+      });
+
+      if (!trackRes.ok) {
+        const errText = await trackRes.text();
+        let upstreamStatus = "UNKNOWN";
+        try {
+          const parsed = JSON.parse(errText);
+          upstreamStatus = parsed?.error?.status || upstreamStatus;
+        } catch {
+          // ignore
+        }
+        console.error(JSON.stringify({
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+          action: "track",
+          httpStatus: trackRes.status,
+          errorStatus: upstreamStatus,
+          hasGeminiKey: Boolean(Deno.env.get("GEMINI_API_KEY")),
+        }));
+        if (trackRes.status === 403) {
+          return jsonResponse({
+            error: "upstream_provider_denied",
+            code: "GEMINI_PERMISSION_DENIED",
+            provider: "gemini",
+          }, 502);
+        }
+        return jsonResponse({
+          error: "track_upstream_error",
+          code: "GEMINI_UPSTREAM_ERROR",
+          status: trackRes.status,
+        }, 502);
+      }
+
+      const trackJson = await trackRes.json();
+      const trackText = trackJson?.candidates?.[0]?.content?.parts
+        ?.map((p: { text?: string }) => p.text || "")
+        .join("") || "";
+      let side = "left";
+      let confidence = 0.5;
+      let reason = "";
+      try {
+        const cleaned = trackText.replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+        const s = String(parsed.side || "").toLowerCase();
+        side = s.includes("right") ? "right" : "left";
+        confidence = Number(parsed.confidence);
+        if (!Number.isFinite(confidence)) confidence = 0.5;
+        confidence = Math.max(0, Math.min(1, confidence));
+        reason = String(parsed.reason || "").slice(0, 120);
+      } catch {
+        const low = trackText.toLowerCase();
+        side = low.includes("right") ? "right" : "left";
+        confidence = 0.4;
+        reason = "fallback_parse";
+      }
+
+      return jsonResponse({
+        ok: true,
+        action: "track",
+        side,
+        confidence,
+        reason,
+      });
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !serviceRoleKey) {
@@ -81,7 +193,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const payload = (await req.json()) as DiagnosisPayload;
     const stance = String(payload.stance ?? "").trim();
     const target = String(payload.target ?? "").trim();
     const elbowAngle = Number(payload.elbowAngle);

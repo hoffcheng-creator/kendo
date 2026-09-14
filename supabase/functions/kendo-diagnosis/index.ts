@@ -7,6 +7,18 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+type CoachBaseline = {
+  stance?: string;
+  target?: string;
+  elbowAngle?: number | string;
+  avgElbowAngle?: number | string | null;
+  wristDiff?: string | number;
+  poseFrames?: number | string | null;
+  detectionQuality?: string | null;
+  label?: string;
+  savedAt?: string;
+};
+
 type DiagnosisPayload = {
   stance?: string;
   target?: string;
@@ -15,6 +27,7 @@ type DiagnosisPayload = {
   avgElbowAngle?: number | string | null;
   poseFrames?: number | string | null;
   detectionQuality?: string | null;
+  coachBaseline?: CoachBaseline | null;
 };
 
 type GeminiDiagnosis = {
@@ -171,14 +184,86 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
+    const coach = payload.coachBaseline && typeof payload.coachBaseline === "object"
+      ? payload.coachBaseline
+      : null;
+    const coachCompareLines: string[] = [];
+    if (coach && coach.elbowAngle != null && coach.elbowAngle !== "") {
+      const cMax = Number(coach.elbowAngle);
+      const cAvg = coach.avgElbowAngle == null || coach.avgElbowAngle === ""
+        ? null
+        : Number(coach.avgElbowAngle);
+      const cWrist = Number(coach.wristDiff);
+      if (Number.isFinite(cMax)) {
+        const dMax = elbowAngle - cMax;
+        coachCompareLines.push(
+          `教練標準最大肘角 ${cMax}°；學員 ${elbowAngle}°（差 ${dMax.toFixed(1)}°）。`,
+        );
+        if (dMax < -15) {
+          heuristicNotes.push(
+            `相對教練示範：學員最大肘角低約 ${Math.abs(dMax).toFixed(1)}°，傾向伸展／振幅度不足，請優先向教練示範靠攏。`,
+          );
+        } else if (dMax > 20) {
+          heuristicNotes.push(
+            `相對教練示範：學員最大肘角高出約 ${dMax.toFixed(1)}°，可能過度伸直或量度差異，對照示範節奏與刃筋。`,
+          );
+        } else {
+          heuristicNotes.push(
+            `相對教練示範：最大肘角接近教練（差 ${dMax.toFixed(1)}°），可再細修一拍子與氣劍體。`,
+          );
+        }
+      }
+      if (cAvg != null && Number.isFinite(cAvg) && avgElbowAngle != null && Number.isFinite(avgElbowAngle)) {
+        const dAvg = avgElbowAngle - cAvg;
+        coachCompareLines.push(
+          `教練平均肘角 ${cAvg}°；學員 ${avgElbowAngle}°（差 ${dAvg.toFixed(1)}°）。`,
+        );
+      }
+      if (Number.isFinite(cWrist) && absWrist != null) {
+        const dW = absWrist - Math.abs(cWrist);
+        coachCompareLines.push(
+          `教練雙手高度差 |${Math.abs(cWrist).toFixed(3)}|；學員 |${absWrist.toFixed(3)}|（差 ${dW.toFixed(3)}）。`,
+        );
+        if (Math.abs(dW) > 0.05) {
+          heuristicNotes.push(
+            `相對教練示範：雙手高度差偏離較大，注意左右手協調與手の内。`,
+          );
+        }
+      }
+      if (coach.stance && coach.stance !== stance) {
+        heuristicNotes.push(
+          `注意：教練標準姿態為 ${coach.stance}，學員為 ${stance}，跨姿態比較僅供參考。`,
+        );
+      }
+      if (coach.target && coach.target !== target) {
+        heuristicNotes.push(
+          `注意：教練標準目標為 ${coach.target}，學員為 ${target}，跨目標比較僅供參考。`,
+        );
+      }
+      heuristicNotes.unshift(
+        "評分優先序：①教練示範標準 ②文獻啟發式（筑波／鹿屋／日體大／劍道時代等）。請明確指出學員與教練差異，再輔以文獻。",
+      );
+    } else {
+      heuristicNotes.push(
+        "未提供教練示範標準：僅以文獻啟發式診斷；建議教練先錄示範作基準。",
+      );
+    }
+
+    const coachNotesHtml = coachCompareLines.length
+      ? "<p><strong>教練標準對照</strong></p><ul>" +
+        coachCompareLines.map((n) => `<li>${n}</li>`).join("") +
+        "</ul>"
+      : "<p>未設定教練標準；本次僅文獻對照。</p>";
+
     const benchmarkNotes =
+      coachNotesHtml +
       "<p><strong>文獻對照（啟發式）</strong>：参考筑波系／標準正面打突3D模型、八段面打關節研究，《劍道時代》教練解說，以及鹿屋／日體大／國際武道大相關研究要點。以下不是正式審判標準。</p><ul>" +
       heuristicNotes.map((n) => `<li>${n}</li>`).join("") +
       "</ul>";
 
     const systemInstruction =
       "你是一名兼具傳統精神與現代運動科學的資深劍道八段教練。" +
-      "你只能根據學員已偵測到的動作數據，以及系統提供的文獻啟發式基準做診斷，不可忽略數據、不可憑空假設未提供的細節。" +
+      "你只能根據學員已偵測到的動作數據、可選的教練示範標準，以及文獻啟發式基準做診斷，不可忽略數據、不可憑空假設未提供的細節。若有教練標準，必須優先對照教練，再輔以文獻。" +
       "文獻共識（教學用）：正面打突分振り上げ／振り下ろし；右肘在振り下ろし常先屈後伸；左肘相對穩定；雙手應協調；竹刀軌跡個人差較大，下肢與肘協調較適合做基準。" +
       "必須在 diagnosis 開頭用 <p> 引用實際數值，並簡要對照啟發式基準。" +
       "可建議學員對照報告頁參考影片與大學／劍道時代解說，但不要假裝看過影片或讀過全文。" +
@@ -197,6 +282,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `- detectionQuality: ${detectionQuality}`,
       "文獻啟發式基準：",
       ...heuristicNotes.map((n, i) => `${i + 1}. ${n}`),
+      "教練示範標準數據（若有；優先對照）：",
+      ...(coachCompareLines.length ? coachCompareLines : ["（無教練標準）"]),
       "參考資料（學員對照用，你未閱讀／觀看全文）：",
       "1. 返し胴4種類 https://www.youtube.com/watch?v=MwPqKjLozyM",
       "2. 出鼻面5種類 https://www.youtube.com/watch?v=-EGzCr7dWdI",
@@ -323,7 +410,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         wrist_diff: wristDiff,
         diagnosis: diagnosisResult.diagnosis,
         practice_plan: diagnosisResult.practicePlan,
-        raw_metrics: { stance, target, elbowAngle, wristDiff, avgElbowAngle, poseFrames, detectionQuality, heuristicNotes },
+        raw_metrics: { stance, target, elbowAngle, wristDiff, avgElbowAngle, poseFrames, detectionQuality, heuristicNotes, coachBaseline: coach },
       })
       .select("*")
       .single();

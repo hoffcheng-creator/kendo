@@ -108,13 +108,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `- wristDiff（雙手高度差）: ${wristDiff}`,
       `- poseFrames（成功偵測骨架幀數）: ${poseFrames ?? "n/a"}`,
       `- detectionQuality（偵測品質）: ${detectionQuality}`,
-    ].join("
-");t}`,
-      `- elbowAngle（錄影期間最大手肘角度，度）: ${elbowAngle}`,
-      `- avgElbowAngle（錄影期間平均手肘角度，度）: ${avgElbowAngle ?? "n/a"}`,
-      `- wristDiff（雙手高度差）: ${wristDiff}`,
-      `- poseFrames（成功偵測骨架幀數）: ${poseFrames ?? "n/a"}`,
-      `- detectionQuality（偵測品質）: ${detectionQuality}`,
     ].join("\n");
 
     const geminiEndpoint =

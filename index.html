@@ -299,7 +299,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v13</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v14</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -358,6 +358,7 @@
 
     <div id="realtime-dashboard">
       <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
+      <div class="metric-realtime">骨架：<span id="rt-pose-lock" class="status-tag" style="background:#334155;color:#fff;">未鎖定</span></div>
       <div class="metric-realtime" id="rt-metric-elbow">右手肘角度：0°</div>
       <div class="metric-realtime" id="rt-metric-wrist">雙手高度差：0.000</div>
     </div>
@@ -444,26 +445,92 @@
       return (angle > 180.0 ? 360 - angle : angle).toFixed(1);
     }
 
+    function lmVis(lm) {
+      if (!lm) return 0;
+      return (typeof lm.visibility === 'number') ? lm.visibility : 0.5;
+    }
+
+    // 要求軀幹＋手臂關鍵點夠清楚，避免追錯竹刀／傢俬／背景
+    function isReliableHumanPose(landmarks) {
+      if (!landmarks || landmarks.length < 25) return { ok: false, reason: 'no_pose' };
+      const lShoulder = landmarks[11], rShoulder = landmarks[12];
+      const lHip = landmarks[23], rHip = landmarks[24];
+      const rElbow = landmarks[14], rWrist = landmarks[16];
+      const lElbow = landmarks[13], lWrist = landmarks[15];
+
+      const torsoVis =
+        Math.min(lmVis(lShoulder), lmVis(rShoulder)) >= 0.65 &&
+        (lmVis(lHip) >= 0.45 || lmVis(rHip) >= 0.45);
+      if (!torsoVis) return { ok: false, reason: 'torso' };
+
+      // 軀幹在畫面要有合理大小（太細多半係誤檢）
+      const shY = ((lShoulder.y || 0) + (rShoulder.y || 0)) / 2;
+      const hipY = (lmVis(lHip) >= lmVis(rHip) ? lHip.y : rHip.y);
+      const torsoH = Math.abs(hipY - shY);
+      if (!(torsoH >= 0.10 && torsoH <= 0.75)) return { ok: false, reason: 'scale' };
+
+      // 兩肩唔好極端垂直（常見誤跟長條物件）
+      const shoulderDy = Math.abs((lShoulder.y || 0) - (rShoulder.y || 0));
+      const shoulderDx = Math.abs((lShoulder.x || 0) - (rShoulder.x || 0));
+      if (shoulderDx < 0.04 || shoulderDy > 0.22) return { ok: false, reason: 'shoulders' };
+
+      const rightArmOk = lmVis(rElbow) >= 0.60 && lmVis(rWrist) >= 0.55;
+      const leftArmOk = lmVis(lElbow) >= 0.60 && lmVis(lWrist) >= 0.55;
+      if (!rightArmOk && !leftArmOk) return { ok: false, reason: 'arms' };
+
+      return { ok: true, reason: 'ok', preferRight: rightArmOk };
+    }
+
+    function setPoseLockUI(state, detail) {
+      const el = document.getElementById('rt-pose-lock');
+      if (!el) return;
+      if (state === 'good') {
+        el.innerText = '已鎖定人體';
+        el.style.background = '#16a34a';
+      } else if (state === 'weak') {
+        el.innerText = detail || '訊號弱';
+        el.style.background = '#ca8a04';
+      } else {
+        el.innerText = detail || '未鎖定';
+        el.style.background = '#334155';
+      }
+    }
+
     function onResults(results) {
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      
+
       if (results.image) {
         canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
       }
 
       if (results.poseLandmarks && results.poseLandmarks.length > 0) {
         const landmarks = results.poseLandmarks;
+        const check = isReliableHumanPose(landmarks);
+
+        if (!check.ok) {
+          // 仍可淡色畫出，但唔採樣、唔更新角度，避免追錯物件污染數據
+          const bodyConnections = POSE_CONNECTIONS.filter(conn => conn[0] > 10 && conn[1] > 10);
+          drawConnectors(canvasCtx, landmarks, bodyConnections, { color: 'rgba(255,80,80,0.35)', lineWidth: 2 });
+          const tip = check.reason === 'scale' ? '請拉遠／全身入鏡'
+            : check.reason === 'torso' ? '請面向鏡頭、顯露軀幹'
+            : check.reason === 'arms' ? '請露出雙手手臂'
+            : '未確認到人體';
+          setPoseLockUI('weak', tip);
+          canvasCtx.restore();
+          return;
+        }
+
+        setPoseLockUI('good');
         const bodyConnections = POSE_CONNECTIONS.filter(conn => conn[0] > 10 && conn[1] > 10);
-        
-        drawConnectors(canvasCtx, landmarks, bodyConnections, { color: '#00FF00', lineWidth: 3 });
+        drawConnectors(canvasCtx, landmarks, bodyConnections, { color: '#22c55e', lineWidth: 3 });
 
         for (let i = 11; i < landmarks.length; i++) {
           const lm = landmarks[i];
-          if (lm && (lm.visibility === undefined || lm.visibility > 0.5)) {
+          if (lm && lmVis(lm) > 0.6) {
             canvasCtx.beginPath();
             canvasCtx.arc(lm.x * canvasElement.width, lm.y * canvasElement.height, 4, 0, 2 * Math.PI);
-            canvasCtx.fillStyle = '#FF0000';
+            canvasCtx.fillStyle = '#ef4444';
             canvasCtx.fill();
           }
         }
@@ -471,33 +538,52 @@
         const shoulderR = landmarks[12];
         const elbowR = landmarks[14];
         const wristR = landmarks[16];
+        const shoulderL = landmarks[11];
+        const elbowL = landmarks[13];
         const wristL = landmarks[15];
 
-        if (shoulderR && elbowR && wristR) {
-          const currentAngle = calculateAngle(shoulderR, elbowR, wristR);
-          currentMetrics.elbowAngle = currentAngle;
-          currentMetrics.wristDiff = wristL && wristR ? (wristL.y - wristR.y).toFixed(3) : '0.000';
+        let currentAngle = null;
+        if (check.preferRight && lmVis(shoulderR) >= 0.6 && lmVis(elbowR) >= 0.6 && lmVis(wristR) >= 0.55) {
+          currentAngle = calculateAngle(shoulderR, elbowR, wristR);
+        } else if (lmVis(shoulderL) >= 0.6 && lmVis(elbowL) >= 0.6 && lmVis(wristL) >= 0.55) {
+          currentAngle = calculateAngle(shoulderL, elbowL, wristL);
+        }
 
-          // 錄影期間：累積偵測幀同角度，先有真實數據
-          if (isRecording) {
-            poseFramesInRecording += 1;
-            const ang = parseFloat(currentAngle);
-            if (!isNaN(ang)) {
+        if (currentAngle != null) {
+          const ang = parseFloat(currentAngle);
+          // 解剖合理範圍，過濾亂跳數值
+          if (!isNaN(ang) && ang >= 15 && ang <= 179) {
+            currentMetrics.elbowAngle = currentAngle;
+            if (lmVis(wristL) >= 0.45 && lmVis(wristR) >= 0.45) {
+              currentMetrics.wristDiff = (wristL.y - wristR.y).toFixed(3);
+            }
+
+            if (isRecording) {
+              poseFramesInRecording += 1;
               elbowSamples.push(ang);
               if (ang > maxElbowAngleRecorded) maxElbowAngleRecorded = ang;
             }
-          }
 
-          document.getElementById('rt-metric-elbow').innerText = `右手肘角度: ${currentMetrics.elbowAngle}°`;
-          document.getElementById('rt-metric-wrist').innerText = `雙手高度差: ${currentMetrics.wristDiff}`;
+            document.getElementById('rt-metric-elbow').innerText = `手肘角度: ${currentMetrics.elbowAngle}°`;
+            document.getElementById('rt-metric-wrist').innerText = `雙手高度差: ${currentMetrics.wristDiff}`;
+          }
         }
+      } else {
+        setPoseLockUI('none', '未偵測到人');
       }
       canvasCtx.restore();
     }
 
-    // 初始化 Pose 模型
+    // 初始化 Pose 模型（提高複雜度同信心門檻，減少誤跟物件）
     const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
-    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    pose.setOptions({
+      modelComplexity: 2,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      selfieMode: false,
+      minDetectionConfidence: 0.72,
+      minTrackingConfidence: 0.65
+    });
     pose.onResults(onResults);
 
     // ===== Camera with front/back switch (iOS/Android) =====
@@ -521,7 +607,7 @@
       if (hint) {
         hint.innerHTML = currentFacingMode === 'user'
           ? '而家係<strong>前鏡頭</strong>。練劍建議切去<strong>後鏡頭</strong>拍全身。'
-          : '而家係<strong>後鏡頭</strong>。請將手機橫放或請人代拍，保持全身入鏡。';
+          : '而家係<strong>後鏡頭</strong>。請將手機橫放或請人代拍，保持<strong>全身＋軀幹清楚入鏡</strong>，避免只拍竹刀。';
       }
       // Mirror preview only for front camera (selfie); keep canvas unmirrored for analysis consistency via draw
       canvasElement.classList.toggle('mirror', currentFacingMode === 'user');
@@ -905,7 +991,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=13').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=14').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

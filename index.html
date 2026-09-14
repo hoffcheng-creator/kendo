@@ -299,7 +299,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v15</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v16</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -467,21 +467,21 @@
       const lElbow = landmarks[13], lWrist = landmarks[15];
 
       const torsoVis =
-        Math.min(lmVis(lShoulder), lmVis(rShoulder)) >= 0.65 &&
-        (lmVis(lHip) >= 0.45 || lmVis(rHip) >= 0.45);
+        Math.min(lmVis(lShoulder), lmVis(rShoulder)) >= 0.40 &&
+        (lmVis(lHip) >= 0.28 || lmVis(rHip) >= 0.28);
       if (!torsoVis) return { ok: false, reason: 'torso' };
 
       const shY = ((lShoulder.y || 0) + (rShoulder.y || 0)) / 2;
       const hipY = (lmVis(lHip) >= lmVis(rHip) ? lHip.y : rHip.y);
       const torsoH = Math.abs(hipY - shY);
-      if (!(torsoH >= 0.10 && torsoH <= 0.75)) return { ok: false, reason: 'scale' };
+      if (!(torsoH >= 0.06 && torsoH <= 0.85)) return { ok: false, reason: 'scale' };
 
       const shoulderDy = Math.abs((lShoulder.y || 0) - (rShoulder.y || 0));
       const shoulderDx = Math.abs((lShoulder.x || 0) - (rShoulder.x || 0));
-      if (shoulderDx < 0.04 || shoulderDy > 0.22) return { ok: false, reason: 'shoulders' };
+      if (shoulderDx < 0.02 || shoulderDy > 0.35) return { ok: false, reason: 'shoulders' };
 
-      const rightArmOk = lmVis(rElbow) >= 0.60 && lmVis(rWrist) >= 0.55;
-      const leftArmOk = lmVis(lElbow) >= 0.60 && lmVis(lWrist) >= 0.55;
+      const rightArmOk = lmVis(rElbow) >= 0.35 && lmVis(rWrist) >= 0.30;
+      const leftArmOk = lmVis(lElbow) >= 0.35 && lmVis(lWrist) >= 0.30;
       if (!rightArmOk && !leftArmOk) return { ok: false, reason: 'arms' };
 
       return { ok: true, reason: 'ok', preferRight: rightArmOk };
@@ -492,11 +492,11 @@
       const wL = landmarks[15], wR = landmarks[16];
       const iL = landmarks[19], iR = landmarks[20]; // index
       const pL = landmarks[17], pR = landmarks[18]; // pinky
-      if (lmVis(wL) < 0.55 || lmVis(wR) < 0.55) {
+      if (lmVis(wL) < 0.30 || lmVis(wR) < 0.30) {
         return { ok: false, reason: 'hands' };
       }
       const grip = dist2d(wL, wR);
-      if (!(grip >= 0.028 && grip <= 0.28)) {
+      if (!(grip >= 0.015 && grip <= 0.40)) {
         return { ok: false, reason: 'grip' };
       }
 
@@ -514,7 +514,7 @@
       let dirY = (front.y || 0) - (rear.y || 0);
       const frontIndex = (front === wR) ? iR : iL;
       const rearIndex = (front === wR) ? iL : iR;
-      if (lmVis(frontIndex) >= 0.40 && lmVis(rearIndex) >= 0.35) {
+      if (lmVis(frontIndex) >= 0.20 && lmVis(rearIndex) >= 0.18) {
         dirX = 0.65 * dirX + 0.35 * ((frontIndex.x || 0) - (rearIndex.x || 0));
         dirY = 0.65 * dirY + 0.35 * ((frontIndex.y || 0) - (rearIndex.y || 0));
       }
@@ -527,7 +527,7 @@
       const tsukaEnd = { x: (rear.x || 0) - ux * grip * 0.35, y: (rear.y || 0) - uy * grip * 0.35 };
 
       // 劍尖應大致喺畫面內或邊緣（完全亂飛就唔鎖）
-      if (tip.x < -0.15 || tip.x > 1.15 || tip.y < -0.15 || tip.y > 1.15) {
+      if (tip.x < -0.35 || tip.x > 1.35 || tip.y < -0.35 || tip.y > 1.35) {
         return { ok: false, reason: 'tip' };
       }
 
@@ -616,7 +616,7 @@
 
         for (let i = 11; i < landmarks.length; i++) {
           const lm = landmarks[i];
-          if (lm && lmVis(lm) > 0.6) {
+          if (lm && lmVis(lm) > 0.35) {
             canvasCtx.beginPath();
             canvasCtx.arc(lm.x * canvasElement.width, lm.y * canvasElement.height, 4, 0, 2 * Math.PI);
             canvasCtx.fillStyle = '#ef4444';
@@ -661,9 +661,9 @@
         const wristL = landmarks[15];
 
         let currentAngle = null;
-        if (check.preferRight && lmVis(shoulderR) >= 0.6 && lmVis(elbowR) >= 0.6 && lmVis(wristR) >= 0.55) {
+        if (check.preferRight && lmVis(shoulderR) >= 0.35 && lmVis(elbowR) >= 0.35 && lmVis(wristR) >= 0.30) {
           currentAngle = calculateAngle(shoulderR, elbowR, wristR);
-        } else if (lmVis(shoulderL) >= 0.6 && lmVis(elbowL) >= 0.6 && lmVis(wristL) >= 0.55) {
+        } else if (lmVis(shoulderL) >= 0.35 && lmVis(elbowL) >= 0.35 && lmVis(wristL) >= 0.30) {
           currentAngle = calculateAngle(shoulderL, elbowL, wristL);
         }
 
@@ -671,7 +671,7 @@
           const ang = parseFloat(currentAngle);
           if (!isNaN(ang) && ang >= 15 && ang <= 179) {
             currentMetrics.elbowAngle = currentAngle;
-            if (lmVis(wristL) >= 0.45 && lmVis(wristR) >= 0.45) {
+            if (lmVis(wristL) >= 0.25 && lmVis(wristR) >= 0.25) {
               currentMetrics.wristDiff = (wristL.y - wristR.y).toFixed(3);
             }
 
@@ -701,8 +701,8 @@
       smoothLandmarks: true,
       enableSegmentation: false,
       selfieMode: false,
-      minDetectionConfidence: 0.72,
-      minTrackingConfidence: 0.65
+      minDetectionConfidence: 0.45,
+      minTrackingConfidence: 0.40
     });
     pose.onResults(onResults);
 
@@ -873,7 +873,7 @@
     }
 
     function saveCoachBaselineFromRecording() {
-      if (poseFramesInRecording < 8 || elbowSamples.length < 5 || maxElbowAngleRecorded <= 0) {
+      if (poseFramesInRecording < 5 || elbowSamples.length < 3 || maxElbowAngleRecorded <= 0) {
         alert('教練示範未夠清楚偵測到骨架／角度。\\n請用後鏡頭、全身入鏡再錄一次。');
         coachModeActive = true;
         refreshCoachBaselineUI();
@@ -890,7 +890,7 @@
         avgElbowAngle: Number(avgElbow.toFixed(1)),
         wristDiff: String(currentMetrics.wristDiff),
         poseFrames: poseFramesInRecording,
-        detectionQuality: poseFramesInRecording >= 30 ? 'good' : 'fair',
+        detectionQuality: poseFramesInRecording >= 18 ? 'good' : 'fair',
         savedAt: new Date().toISOString()
       };
       localStorage.setItem(COACH_BASELINE_KEY, JSON.stringify(baseline));
@@ -1015,7 +1015,7 @@
         return;
       }
       // 必須真係偵測到動作／骨架，先俾出 AI feedback
-      if (poseFramesInRecording < 8 || elbowSamples.length < 5 || maxElbowAngleRecorded <= 0) {
+      if (poseFramesInRecording < 5 || elbowSamples.length < 3 || maxElbowAngleRecorded <= 0) {
         alert('今次錄影未同時鎖定人體＋竹劍／劍尖。\n請全身入鏡、雙手握竹劍，見到「人體已鎖定」同「劍身＋劍尖已鎖」先錄。');
         return;
       }
@@ -1024,7 +1024,7 @@
       const target = document.getElementById('target-select').value;
       const finalElbow = maxElbowAngleRecorded;
       const avgElbow = (elbowSamples.reduce((a,b)=>a+b,0) / elbowSamples.length).toFixed(1);
-      const detectionQuality = poseFramesInRecording >= 30 ? 'good' : 'fair';
+      const detectionQuality = poseFramesInRecording >= 18 ? 'good' : 'fair';
 
       document.getElementById('report-stance').innerText = `姿態模組：${stance}`;
       document.getElementById('report-target').innerText = `打擊目標：${target}`;
@@ -1115,7 +1115,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=15').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=16').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

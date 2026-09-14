@@ -1,238 +1,335 @@
 <!DOCTYPE html>
 <html lang="zh-HK">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>劍道 AI 動作分析網頁版 V2</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 劍道動作分析系統 (錄影分析版)</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
+    .page { display: none; }
+    .active-page { display: block; }
+    .controls { background: #2a2a2a; padding: 15px; border-radius: 8px; display: inline-block; margin-bottom: 15px; }
+    select, button { font-size: 16px; padding: 10px 18px; margin: 5px; border-radius: 5px; border: none; cursor: pointer; }
+    select { background: #444; color: white; }
     
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js" crossorigin="anonymous"></script>
+    .btn-record { background: #dc3545; color: white; font-weight: bold; }
+    .btn-stop { background: #ffc107; color: #000; font-weight: bold; }
+    .btn-submit { background: #28a745; color: white; font-weight: bold; }
+    .btn-back { background: #007bff; color: white; padding: 10px 24px; font-size: 16px; border-radius: 6px; }
+
+    .video-container { position: relative; width: 640px; height: 480px; margin: 0 auto; border: 2px solid #555; border-radius: 8px; overflow: hidden; background: #000; }
+    video, canvas { position: absolute; left: 0; top: 0; width: 640px; height: 480px; }
     
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        h1 { color: #00ffcc; font-size: 24px; margin-bottom: 10px; }
-        
-        /* 雙視窗佈局 */
-        .workspace {
-            display: flex;
-            gap: 20px;
-            width: 100%;
-            max-width: 1200px;
-            margin-top: 20px;
-        }
-        .box {
-            flex: 1;
-            background: #1e1e1e;
-            border-radius: 12px;
-            overflow: hidden;
-            border: 2px solid #333;
-            position: relative;
-            aspect-ratio: 4/3;
-        }
-        video, canvas, iframe {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: none;
-            object-fit: cover;
-        }
-        .box-title {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            padding: 5px 10px;
-            border-radius: 5px;
-            z-index: 10;
-            font-size: 14px;
-            color: #00ffcc;
-        }
-        
-        .hud {
-            width: 100%;
-            max-width: 1160px;
-            margin-top: 15px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px;
-            border-radius: 10px;
-            border-left: 5px solid #00ffcc;
-        }
-        .data-field { font-size: 20px; font-weight: bold; color: #00ffcc; margin-bottom: 5px; }
-        .advice-field { font-size: 16px; color: #e0e0e0; }
-        
-        .control-panel {
-            width: 100%;
-            max-width: 1160px;
-            background: #1a1a1a;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 15px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .row { display: flex; gap: 10px; align-items: center; }
-        input[type="text"] {
-            flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #2a2a2a; color: white;
-        }
-        button {
-            background: #00ffcc; color: #121212; border: none; padding: 10px 20px;
-            font-size: 14px; font-weight: bold; border-radius: 5px; cursor: pointer;
-        }
-        button:hover { background: #00cc99; }
-        .hint { font-size: 12px; color: #aaa; }
-        #fileInput { display: none; }
-    </style>
+    #realtime-dashboard { width: 640px; margin: 15px auto 0; background: #2a2a2a; padding: 15px; border-radius: 8px; text-align: left; box-sizing: border-box; }
+    .metric-realtime { font-size: 18px; color: #00ffcc; margin: 5px 0; }
+    .status-tag { font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 14px; }
+    .rec-active { background: #dc3545; color: #fff; animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: 0.5; } }
+
+    /* Page 2 報告頁專用樣式 */
+    .report-container { max-width: 850px; margin: 0 auto; background: #1e1e1e; border-radius: 12px; padding: 30px; border: 1px solid #333; text-align: left; }
+    .report-container h1 { text-align: center; color: #fff; border-bottom: 2px solid #007bff; padding-bottom: 10px; margin-top: 0; }
+    .badge-container { text-align: center; margin-bottom: 20px; }
+    .badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-weight: bold; background: #007bff; color: white; margin: 0 5px; }
+    
+    .section-title { font-size: 20px; font-weight: bold; color: #ffc107; margin-top: 25px; margin-bottom: 12px; border-left: 4px solid #ffc107; padding-left: 10px; }
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .metric-card { background: #2a2a2a; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #444; }
+    .metric-value { font-size: 26px; font-weight: bold; color: #00ffcc; margin: 5px 0; }
+    
+    .info-card { background: #252830; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #007bff; line-height: 1.6; }
+    .practice-card { background: #1c2d27; padding: 20px; border-radius: 8px; border-left: 4px solid #28a745; line-height: 1.6; }
+    
+    /* 動作分析播放器樣式 */
+    .analysis-player-box { background: #000; width: 640px; height: 480px; margin: 15px auto; border-radius: 8px; position: relative; overflow: hidden; border: 2px solid #007bff; }
+    .video-controls { text-align: center; margin-bottom: 20px; }
+  </style>
 </head>
 <body>
 
-    <h1>劍道 AI 動作分析網頁版 (雙視窗對照版)</h1>
+  <!-- ==================== Page 1: 鏡頭與錄影頁 ==================== -->
+  <div id="page-1" class="page active-page">
+    <h1>AI 劍道動作分析系統 (錄影與即時捕捉)</h1>
 
-    <div class="control-panel">
-        <div class="row">
-            <input type="text" id="ytLinkInput" placeholder="請貼上 YouTube 影片網址 (例如: https://www.youtube.com/watch?v=xxxxxx)">
-            <button id="loadYtBtn">載入右側對照影片</button>
-        </div>
-        <div class="row">
-            <button id="webcamButton">開啟即時鏡頭</button>
-            <button onclick="document.getElementById('fileInput').click()">匯入已下載的影片至 AI</button>
-            <input type="file" id="fileInput" accept="video/*">
-            <span class="hint">💡 提示：若想分析 YouTube 影片，請複製網址到快手等下載網站下載後，再點擊此處匯入。</span>
-        </div>
+    <div class="controls">
+      <label>姿態：</label>
+      <select id="stance-select">
+        <option value="CHUDAN">中段之構 (Chudan)</option>
+        <option value="JODAN">上段之構 (Jodan)</option>
+        <option value="NITO">二刀流 (Nito)</option>
+      </select>
+      
+      <label>目標：</label>
+      <select id="target-select">
+        <option value="MEN">面 (Men)</option>
+        <option value="DO">胴 (Do)</option>
+        <option value="KOTE">小手 (Kote)</option>
+      </select>
+      
+      <button id="btn-rec" class="btn-record" onclick="toggleRecording()">🔴 開始錄製動作</button>
+      <button class="btn-submit" onclick="switchToReportPage()">產生診斷報告 📊</button>
     </div>
-    
-    <div class="workspace">
-        <div class="box">
-            <div class="box-title">左側：AI 動作捕捉與運算</div>
-            <video id="webcam" autoplay playsinline muted></video>
-            <canvas id="output_canvas"></canvas>
+
+    <div class="video-container">
+      <video id="webcam" playsinline style="display:none;"></video>
+      <canvas id="output_canvas" width="640" height="480"></canvas>
+    </div>
+
+    <div id="realtime-dashboard">
+      <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#555;">等待錄製</span></div>
+      <div class="metric-realtime" id="rt-metric-elbow">右手肘角度：0°</div>
+      <div class="metric-realtime" id="rt-metric-wrist">雙手高度差：0.000</div>
+    </div>
+  </div>
+
+  <!-- ==================== Page 2: 診斷報告與動作重播頁 ==================== -->
+  <div id="page-2" class="page">
+    <div class="report-container">
+      <h1>劍道 AI 動作綜合診斷報告</h1>
+      
+      <div class="badge-container">
+        <span class="badge" id="report-stance">姿態：-</span>
+        <span class="badge" id="report-target" style="background:#6c757d;">目標：-</span>
+      </div>
+
+      <!-- 1. 動作重播與姿態分析 (新增功能) -->
+      <div class="section-title">🎥 1. 動作錄影慢動作重播與姿勢回放</div>
+      <div class="analysis-player-box">
+        <video id="replay-video" controls width="640" height="480"></video>
+      </div>
+      <div class="video-controls">
+        <button onclick="setPlaySpeed(0.5)">0.5x 慢速播放</button>
+        <button onclick="setPlaySpeed(1.0)">1.0x 正常速度</button>
+        <button onclick="pauseAtPeak()">📌 跳至關鍵打擊瞬間</button>
+      </div>
+
+      <!-- 2. 即時數據回饋 -->
+      <div class="section-title">⚡ 2. 關鍵打擊數據分析</div>
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div>最大揮刀手肘角度</div>
+          <div class="metric-value" id="val-elbow">0°</div>
         </div>
+        <div class="metric-card">
+          <div>雙手高度差</div>
+          <div class="metric-value" id="val-wrist">0.000</div>
+        </div>
+      </div>
+
+      <!-- 3. AI 改善建議 -->
+      <div class="section-title">🔍 3. AI 姿勢診斷與改善建議</div>
+      <div class="info-card">
+        <div id="ai-diagnosis-text">正在生成診斷中...</div>
+      </div>
+
+      <!-- 4. 自主練習建議 -->
+      <div class="section-title">🏋️ 4. 針對性自主練習菜單</div>
+      <div class="practice-card">
+        <div id="ai-practice-text">正在生成練習菜單...</div>
+      </div>
+
+      <div style="text-align: center; margin-top: 30px;">
+        <button class="btn-back" onclick="switchToCameraPage()">重新錄製 / 返回鏡頭 🔄</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+
+    // ===== Supabase Edge Function =====
+    const SUPABASE_URL = 'https://atbptsrpubmefyydgnde.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_DSTQXS6SUNnECcpoQauqmQ_iaGVxLuQ';
+    const KENDO_FN_URL = SUPABASE_URL + '/functions/v1/kendo-diagnosis';
+
+    let currentMetrics = { elbowAngle: '0.0', wristDiff: '0.000' };
+    let maxElbowAngleRecorded = 0; // 紀錄揮力最高點
+
+    // 錄影相關變數
+    let mediaRecorder;
+    let recordedChunks = [];
+    let isRecording = false;
+    let recordedVideoURL = null;
+
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const replayVideo = document.getElementById('replay-video');
+
+    function calculateAngle(A, B, C) {
+      if (!A || !B || !C) return 0;
+      let radians = Math.atan2(C.y - B.y, C.x - B.x) - Math.atan2(A.y - B.y, A.x - B.x);
+      let angle = Math.abs((radians * 180.0) / Math.PI);
+      return (angle > 180.0 ? 360 - angle : angle).toFixed(1);
+    }
+
+    function onResults(results) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      
+      if (results.image) {
+        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      }
+
+      if (results.poseLandmarks && results.poseLandmarks.length > 0) {
+        const landmarks = results.poseLandmarks;
+        const bodyConnections = POSE_CONNECTIONS.filter(conn => conn[0] > 10 && conn[1] > 10);
         
-        <div class="box">
-            <div class="box-title">右側：YouTube 原片參考對照</div>
-            <iframe id="ytPlayer" src="" allowfullscreen></iframe>
-        </div>
-    </div>
+        drawConnectors(canvasCtx, landmarks, bodyConnections, { color: '#00FF00', lineWidth: 3 });
 
-    <div class="hud">
-        <div id="angleDisplay" class="data-field">左手肘角度: --°</div>
-        <div id="adviceDisplay" class="advice-field">狀態: 正在載入 AI 模型中...</div>
-    </div>
-
-    <script type="module">
-        import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js";
-
-        const video = document.getElementById("webcam");
-        const canvasElement = document.getElementById("output_canvas");
-        const canvasCtx = canvasElement.getContext("2d");
-        const webcamButton = document.getElementById("webcamButton");
-        const fileInput = document.getElementById("fileInput");
-        const ytLinkInput = document.getElementById("ytLinkInput");
-        const loadYtBtn = document.getElementById("loadYtBtn");
-        const ytPlayer = document.getElementById("ytPlayer");
-        const angleDisplay = document.getElementById("angleDisplay");
-        const adviceDisplay = document.getElementById("adviceDisplay");
-
-        let poseLandmarker = undefined;
-        let isWebcam = false;
-
-        // 1. 載入 AI
-        async function initAI() {
-            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm");
-            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-                baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full.task`, delegate: "GPU" },
-                runningMode: "VIDEO"
-            });
-            adviceDisplay.innerText = "狀態: AI 載入完成！請輸入 YouTube 網址或開啟鏡頭。";
-        }
-        initAI();
-
-        // 2. 解析並載入 YouTube Link 到右側
-        loadYtBtn.addEventListener("click", () => {
-            const urlStr = ytLinkInput.value.trim();
-            let videoId = "";
-            
-            // 解析 YouTube ID 核心邏輯
-            if(urlStr.includes("v=")) {
-                videoId = urlStr.split("v=")[1].split("&")[0];
-            } else if(urlStr.includes("youtu.be/")) {
-                videoId = urlStr.split("youtu.be/")[1].split("?")[0];
-            }
-
-            if(videoId) {
-                ytPlayer.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-                adviceDisplay.innerText = "狀態: 成功嵌入 YouTube 參考影片！請下載該影片並匯入到左側讓 AI 分析。";
-            } else {
-                alert("未能識別的 YouTube 網址，請確認格式是否正確。");
-            }
-        });
-
-        // 3. 鏡頭控制
-        webcamButton.addEventListener("click", () => {
-            isWebcam = true;
-            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } }).then((stream) => {
-                video.srcObject = stream;
-                video.addEventListener("loadeddata", predictWebcam);
-            });
-        });
-
-        // 4. 匯入影片
-        fileInput.addEventListener("change", (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                isWebcam = false;
-                video.srcObject = null;
-                video.src = URL.createObjectURL(file);
-                video.addEventListener("loadeddata", predictVideo);
-                video.play();
-            }
-        });
-
-        // AI 運算核心
-        let lastVideoTime = -1;
-        async function predictFrame() {
-            canvasElement.width = video.videoWidth;
-            canvasElement.height = video.videoHeight;
-            if (lastVideoTime !== video.currentTime && poseLandmarker) {
-                lastVideoTime = video.currentTime;
-                const result = poseLandmarker.detectForVideo(video, performance.now());
-                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-                
-                if (result.landmarks && result.landmarks.length > 0) {
-                    const landmarks = result.landmarks[0];
-                    const s = landmarks[11], e = landmarks[13], w = landmarks[15]; // 肩, 肘, 腕
-                    
-                    if (s && e && w) {
-                        canvasCtx.strokeStyle = "#00ffcc"; canvasCtx.lineWidth = 5;
-                        canvasCtx.beginPath();
-                        canvasCtx.moveTo(s.x * canvasElement.width, s.y * canvasElement.height);
-                        canvasCtx.lineTo(e.x * canvasElement.width, e.y * canvasElement.height);
-                        canvasCtx.lineTo(w.x * canvasElement.width, w.y * canvasElement.height);
-                        canvasCtx.stroke();
-
-                        let radians = Math.atan2(w.y - e.y, w.x - e.x) - Math.atan2(s.y - e.y, s.x - e.x);
-                        let angle = Math.abs((radians * 180.0) / Math.PI);
-                        if (angle > 180.0) angle = 360.0 - angle;
-
-                        angleDisplay.innerText = `左手肘角度: ${angle.toFixed(1)}°`;
-                        adviceDisplay.innerText = angle < 75 ? "分析：舉刀手肘過緊！" : (angle > 155 ? "分析：打突完成，殘心標準！" : "分析：正在追蹤動作...");
-                    }
-                }
-            }
+        for (let i = 11; i < landmarks.length; i++) {
+          const lm = landmarks[i];
+          if (lm && (lm.visibility === undefined || lm.visibility > 0.5)) {
+            canvasCtx.beginPath();
+            canvasCtx.arc(lm.x * canvasElement.width, lm.y * canvasElement.height, 4, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = '#FF0000';
+            canvasCtx.fill();
+          }
         }
 
-        async function predictWebcam() { if (isWebcam) { await predictFrame(); window.requestAnimationFrame(predictWebcam); } }
-        async function predictVideo() { if (!isWebcam && !video.paused) { await predictFrame(); window.requestAnimationFrame(predictVideo); } }
-    </script>
+        const shoulderR = landmarks[12];
+        const elbowR = landmarks[14];
+        const wristR = landmarks[16];
+        const wristL = landmarks[15];
+
+        if (shoulderR && elbowR && wristR) {
+          const currentAngle = calculateAngle(shoulderR, elbowR, wristR);
+          currentMetrics.elbowAngle = currentAngle;
+          currentMetrics.wristDiff = wristL && wristR ? (wristL.y - wristR.y).toFixed(3) : '0.000';
+
+          // 如果在錄影狀態中，紀錄最大手肘伸展角度
+          if (isRecording && parseFloat(currentAngle) > maxElbowAngleRecorded) {
+            maxElbowAngleRecorded = parseFloat(currentAngle);
+          }
+
+          document.getElementById('rt-metric-elbow').innerText = `右手肘角度: ${currentMetrics.elbowAngle}°`;
+          document.getElementById('rt-metric-wrist').innerText = `雙手高度差: ${currentMetrics.wristDiff}`;
+        }
+      }
+      canvasCtx.restore();
+    }
+
+    // 初始化 Pose 模型
+    const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
+    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    pose.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await pose.send({ image: videoElement }); },
+      width: 640, height: 480
+    });
+    camera.start();
+
+    // ==================== 錄影功能 (MediaRecorder) ====================
+    function toggleRecording() {
+      const recBtn = document.getElementById('btn-rec');
+      const recStatus = document.getElementById('rec-status');
+
+      if (!isRecording) {
+        // 開始錄影（錄製 Canvas 畫面，這樣能把骨架一起錄進去）
+        recordedChunks = [];
+        maxElbowAngleRecorded = 0;
+        const stream = canvasElement.captureStream(30); // 30 FPS
+        
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+        mediaRecorder.onstop = saveVideo;
+        
+        mediaRecorder.start();
+        isRecording = true;
+
+        recBtn.innerText = "⏹ 停止錄製";
+        recBtn.className = "btn-stop";
+        recStatus.innerText = "REC 錄影中...";
+        recStatus.className = "status-tag rec-active";
+      } else {
+        // 停止錄影
+        mediaRecorder.stop();
+        isRecording = false;
+
+        recBtn.innerText = "🔴 重新錄製";
+        recBtn.className = "btn-record";
+        recStatus.innerText = "錄影完成";
+        recStatus.className = "status-tag";
+        recStatus.style.background = "#28a745";
+      }
+    }
+
+    function saveVideo() {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      recordedVideoURL = URL.createObjectURL(blob);
+      replayVideo.src = recordedVideoURL;
+    }
+
+    // ==================== 動作重播播放器控制 ====================
+    function setPlaySpeed(speed) {
+      replayVideo.playbackRate = speed;
+    }
+
+    function pauseAtPeak() {
+      replayVideo.currentTime = replayVideo.duration / 2; // 簡單跳至影片中間關鍵點
+      replayVideo.pause();
+    }
+
+    // ==================== SPA 頁面切換 ====================
+    function switchToReportPage() {
+      const stance = document.getElementById('stance-select').value;
+      const target = document.getElementById('target-select').value;
+      const finalElbow = maxElbowAngleRecorded > 0 ? maxElbowAngleRecorded : currentMetrics.elbowAngle;
+
+      document.getElementById('report-stance').innerText = `姿態模組：${stance}`;
+      document.getElementById('report-target').innerText = `打擊目標：${target}`;
+      document.getElementById('val-elbow').innerText = `${finalElbow}°`;
+      document.getElementById('val-wrist').innerText = `${currentMetrics.wristDiff}`;
+
+      renderAIDiagnosis(stance, target, finalElbow); // async AI call
+
+      document.getElementById('page-1').classList.remove('active-page');
+      document.getElementById('page-2').classList.add('active-page');
+    }
+
+    function switchToCameraPage() {
+      document.getElementById('page-2').classList.remove('active-page');
+      document.getElementById('page-1').classList.add('active-page');
+    }
+
+    async function renderAIDiagnosis(stance, target, elbowAngle) {
+      const diagnosisEl = document.getElementById('ai-diagnosis-text');
+      const practiceEl = document.getElementById('ai-practice-text');
+      diagnosisEl.innerHTML = '正在呼叫 AI 教練診斷中...';
+      practiceEl.innerHTML = '正在生成練習菜單...';
+
+      const payload = {
+        stance: stance,
+        target: target,
+        elbowAngle: parseFloat(elbowAngle),
+        wristDiff: String(currentMetrics.wristDiff)
+      };
+
+      try {
+        const res = await fetch(KENDO_FN_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+            'apikey': SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error((data && (data.error || data.detail)) || ('HTTP ' + res.status));
+        }
+        diagnosisEl.innerHTML = data.diagnosis || '<p>未有診斷內容</p>';
+        practiceEl.innerHTML = data.practicePlan || '<p>未有練習菜單</p>';
+      } catch (err) {
+        console.error(err);
+        diagnosisEl.innerHTML = '<p style="color:#ff6b6b;">AI 診斷失敗：' + (err.message || err) + '</p>';
+        practiceEl.innerHTML = '<p>請稍後再試，或檢查 Edge Function / Gemini Key 設定。</p>';
+      }
+    }
+  </script>
 </body>
 </html>

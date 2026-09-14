@@ -1,4 +1,4 @@
-const CACHE_NAME = "kendo-ai-v1";
+const CACHE_NAME = "kendo-ai-v2";
 const PRECACHE_URLS = [
   "./",
   "./index.html",

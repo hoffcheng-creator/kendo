@@ -161,6 +161,16 @@
     .ref-videos a { display: block; color: #8ec8ff; text-decoration: none; margin: 6px 0; font-size: 0.92rem; line-height: 1.35; }
     .ref-videos a:hover { text-decoration: underline; }
     .benchmark-card { margin-top: 12px; padding: 12px 14px; border-left: 4px solid #c9a227; border-radius: 8px; background: rgba(201,162,39,0.08); font-size: 0.9rem; }
+    .coach-panel {
+      margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
+      background: rgba(56, 189, 248, 0.06);
+    }
+    .coach-panel h3 { margin: 0 0 8px; font-size: 0.95rem; }
+    .coach-panel .coach-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .coach-panel .coach-actions button { flex: 1; min-width: 140px; }
+    .coach-mode-on #btn-rec { box-shadow: 0 0 0 3px rgba(56,189,248,0.55); }
+    .coach-compare { margin-top: 12px; padding: 12px 14px; border-left: 4px solid #38bdf8; border-radius: 8px; background: rgba(56,189,248,0.08); font-size: 0.9rem; }
+
 
     .analysis-player-box {
       width: min(100%, 96vw); max-width: 960px; margin: 0 auto 12px; aspect-ratio: 4 / 3;
@@ -287,7 +297,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v10</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v11</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -379,6 +389,7 @@
       <div class="section-title">4. 針對性自主練習菜單</div>
       <div class="practice-card"><div id="ai-practice-text">正在生成練習菜單...</div></div>
 
+      <div class="coach-compare" id="coach-compare-notes">教練標準對照將於診斷後顯示（若已儲存示範）。</div>
       <div class="benchmark-card" id="benchmark-notes">文獻對照將於診斷後顯示。</div>
 
       <div class="ref-videos">
@@ -423,6 +434,9 @@
     let maxElbowAngleRecorded = 0; // 紀錄揮力最高點
     let poseFramesInRecording = 0;   // 錄影期間成功偵測到骨架嘅幀數
     let elbowSamples = [];           // 錄影期間手肘角度樣本
+    let coachModeActive = false;     // 下一錄是否教練示範
+    const COACH_BASELINE_KEY = 'kendoCoachBaseline';
+
 
     // 錄影相關變數
     let mediaRecorder;
@@ -611,6 +625,112 @@
 
     window.switchCamera = switchCamera;
 
+
+    // ==================== 教練示範標準 ====================
+    function loadCoachBaseline() {
+      try {
+        const raw = localStorage.getItem(COACH_BASELINE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function refreshCoachBaselineUI() {
+      const summary = document.getElementById('coach-baseline-summary');
+      const clearBtn = document.getElementById('btn-clear-coach');
+      const modeBtn = document.getElementById('btn-coach-mode');
+      const b = loadCoachBaseline();
+      if (!summary) return;
+      if (!b) {
+        summary.textContent = '尚未儲存教練示範。可先錄一段正確示範作對照。';
+        if (clearBtn) clearBtn.style.display = 'none';
+      } else {
+        const when = b.savedAt ? new Date(b.savedAt).toLocaleString() : '-';
+        summary.innerHTML = `已儲存標準：<strong>${b.stance || '-'}</strong> / <strong>${b.target || '-'}</strong><br>` +
+          `最大肘角 ${b.elbowAngle}° · 平均 ${b.avgElbowAngle}° · 雙手差 ${b.wristDiff} · ${when}`;
+        if (clearBtn) clearBtn.style.display = '';
+      }
+      if (modeBtn) {
+        modeBtn.textContent = coachModeActive ? '取消教練模式' : '錄教練示範';
+        modeBtn.style.borderColor = coachModeActive ? '#38bdf8' : '';
+      }
+      document.body.classList.toggle('coach-mode-on', !!coachModeActive);
+    }
+
+    function toggleCoachMode() {
+      if (isRecording) {
+        alert('請先停止錄影，再切換教練模式。');
+        return;
+      }
+      coachModeActive = !coachModeActive;
+      const recStatus = document.getElementById('rec-status');
+      if (recStatus) {
+        recStatus.innerText = coachModeActive ? '教練模式 — 撳圓掣錄示範' : '等待錄製';
+        recStatus.style.background = coachModeActive ? '#0369a1' : '#334155';
+      }
+      refreshCoachBaselineUI();
+    }
+
+    function clearCoachBaseline() {
+      if (!confirm('確定清除已儲存嘅教練標準？')) return;
+      localStorage.removeItem(COACH_BASELINE_KEY);
+      refreshCoachBaselineUI();
+    }
+
+    function saveCoachBaselineFromRecording() {
+      if (poseFramesInRecording < 8 || elbowSamples.length < 5 || maxElbowAngleRecorded <= 0) {
+        alert('教練示範未夠清楚偵測到骨架／角度。\\n請用後鏡頭、全身入鏡再錄一次。');
+        coachModeActive = true;
+        refreshCoachBaselineUI();
+        return;
+      }
+      const stance = document.getElementById('stance-select').value;
+      const target = document.getElementById('target-select').value;
+      const avgElbow = (elbowSamples.reduce((a,b)=>a+b,0) / elbowSamples.length);
+      const baseline = {
+        label: '教練示範',
+        stance: stance,
+        target: target,
+        elbowAngle: Number(maxElbowAngleRecorded),
+        avgElbowAngle: Number(avgElbow.toFixed(1)),
+        wristDiff: String(currentMetrics.wristDiff),
+        poseFrames: poseFramesInRecording,
+        detectionQuality: poseFramesInRecording >= 30 ? 'good' : 'fair',
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem(COACH_BASELINE_KEY, JSON.stringify(baseline));
+      coachModeActive = false;
+      refreshCoachBaselineUI();
+      const recStatus = document.getElementById('rec-status');
+      if (recStatus) {
+        recStatus.innerText = '教練標準已儲存';
+        recStatus.style.background = '#0369a1';
+      }
+      alert('已儲存教練示範作為標準。\\n之後學員錄影診斷會對照此標準 + 文獻基準。');
+    }
+
+    function buildCoachCompareHtml(student, coach) {
+      if (!coach) {
+        return '<p>尚未設定教練標準。可返回相機頁撳「錄教練示範」。</p>';
+      }
+      const sMax = Number(student.elbowAngle);
+      const cMax = Number(coach.elbowAngle);
+      const sAvg = Number(student.avgElbowAngle);
+      const cAvg = Number(coach.avgElbowAngle);
+      const sW = Math.abs(Number(student.wristDiff));
+      const cW = Math.abs(Number(coach.wristDiff));
+      const dMax = (sMax - cMax).toFixed(1);
+      const dAvg = (sAvg - cAvg).toFixed(1);
+      const dW = (sW - cW).toFixed(3);
+      return '<p><strong>對照教練標準</strong>（教練示範優先，文獻作輔助）</p><ul>' +
+        `<li>姿態／目標：學員 ${student.stance}/${student.target} · 教練 ${coach.stance}/${coach.target}</li>` +
+        `<li>最大肘角：學員 ${sMax}° vs 教練 ${cMax}°（差 ${dMax}°）</li>` +
+        `<li>平均肘角：學員 ${sAvg}° vs 教練 ${cAvg}°（差 ${dAvg}°）</li>` +
+        `<li>雙手高度差绝对值：學員 ${sW.toFixed(3)} vs 教練 ${cW.toFixed(3)}（差 ${dW}）</li>` +
+        '</ul>';
+    }
+
     // ==================== 錄影功能 (MediaRecorder) ====================
     function toggleRecording() {
       const recBtn = document.getElementById('btn-rec');
@@ -635,8 +755,9 @@
         const pill = document.getElementById('rec-pill');
         if (pill) pill.classList.add('on');
         if (recStatus) {
-          recStatus.innerText = "錄影中 — 再撳圓掣停止";
+          recStatus.innerText = coachModeActive ? "教練示範錄影中 — 再撳停止" : "錄影中 — 再撳圓掣停止";
           recStatus.className = "status-tag rec-active";
+          if (coachModeActive) recStatus.style.background = "#0369a1";
         }
         setGuideStep(2);
         const reportBtn = document.getElementById('btn-report');
@@ -645,23 +766,35 @@
         if (sideReport) { sideReport.disabled = true; sideReport.style.opacity = '0.4'; }
       } else {
         // 停止錄影
+        const wasCoach = coachModeActive;
         mediaRecorder.stop();
         isRecording = false;
 
         recBtn.classList.remove('recording');
         const pill = document.getElementById('rec-pill');
         if (pill) pill.classList.remove('on');
-        if (recStatus) {
-          recStatus.innerText = "完成 — 可撳「診斷報告」";
-          recStatus.className = "status-tag";
-          recStatus.style.background = "#16a34a";
+
+        if (wasCoach) {
+          // MediaRecorder onstop is async; delay slightly so samples are final
+          setTimeout(function () { saveCoachBaselineFromRecording(); }, 120);
+          hasRecordedClip = false;
+          const reportBtn = document.getElementById('btn-report');
+          const sideReport = document.getElementById('btn-to-report');
+          if (reportBtn) reportBtn.disabled = true;
+          if (sideReport) { sideReport.disabled = true; sideReport.style.opacity = '0.4'; }
+        } else {
+          if (recStatus) {
+            recStatus.innerText = "完成 — 可撳「診斷報告」";
+            recStatus.className = "status-tag";
+            recStatus.style.background = "#16a34a";
+          }
+          hasRecordedClip = true;
+          const reportBtn = document.getElementById('btn-report');
+          const sideReport = document.getElementById('btn-to-report');
+          if (reportBtn) reportBtn.disabled = false;
+          if (sideReport) { sideReport.disabled = false; sideReport.style.opacity = '1'; }
+          setGuideStep(3);
         }
-        hasRecordedClip = true;
-        const reportBtn = document.getElementById('btn-report');
-        const sideReport = document.getElementById('btn-to-report');
-        if (reportBtn) reportBtn.disabled = false;
-        if (sideReport) { sideReport.disabled = false; sideReport.style.opacity = '1'; }
-        setGuideStep(3);
       }
     }
 
@@ -704,11 +837,23 @@
       document.getElementById('val-elbow').innerText = `${finalElbow}°`;
       document.getElementById('val-wrist').innerText = `${currentMetrics.wristDiff}`;
 
+      const coachBaseline = loadCoachBaseline();
+      const studentSnap = {
+        stance: stance,
+        target: target,
+        elbowAngle: finalElbow,
+        avgElbowAngle: avgElbow,
+        wristDiff: currentMetrics.wristDiff
+      };
+      const cc = document.getElementById('coach-compare-notes');
+      if (cc) cc.innerHTML = buildCoachCompareHtml(studentSnap, coachBaseline);
+
       renderAIDiagnosis(stance, target, finalElbow, {
         avgElbowAngle: avgElbow,
         poseFrames: poseFramesInRecording,
         detectionQuality: detectionQuality,
-        wristDiff: currentMetrics.wristDiff
+        wristDiff: currentMetrics.wristDiff,
+        coachBaseline: coachBaseline
       }); // async AI call
 
       document.getElementById('page-1').classList.remove('active-page');
@@ -735,7 +880,8 @@
         wristDiff: String((meta && meta.wristDiff) || currentMetrics.wristDiff),
         avgElbowAngle: meta && meta.avgElbowAngle ? parseFloat(meta.avgElbowAngle) : null,
         poseFrames: meta && meta.poseFrames ? meta.poseFrames : null,
-        detectionQuality: (meta && meta.detectionQuality) || 'unknown'
+        detectionQuality: (meta && meta.detectionQuality) || 'unknown',
+        coachBaseline: (meta && meta.coachBaseline) || loadCoachBaseline() || null
       };
 
       try {
@@ -771,7 +917,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=10').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=11').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

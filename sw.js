@@ -1,4 +1,4 @@
-const CACHE_NAME = "kendo-ai-v24";
+const CACHE_NAME = "kendo-ai-v25";
 /* Do not precache index.html so updates show faster */
 const PRECACHE_URLS = [
   "./manifest.json",

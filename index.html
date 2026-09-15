@@ -177,6 +177,15 @@
     .pair-side-row button.active {
       background: rgba(3,105,161,0.35); border-color: #38bdf8; color: #e0f2fe;
     }
+    .osmo-assist-row {
+      display: flex; align-items: flex-start; gap: 10px;
+      margin-top: 10px; padding: 10px 12px;
+      border: 1px solid rgba(56,189,248,0.35); border-radius: 10px;
+      background: rgba(14,165,233,0.08); font-size: 0.88rem; color: var(--muted);
+    }
+    .osmo-assist-row label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; color: var(--text); }
+    .osmo-assist-row strong { color: #e0f2fe; }
+
 
 
 
@@ -305,7 +314,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v20</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v21</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -345,6 +354,12 @@
           <button type="button" class="btn-ghost active" id="btn-side-auto" onclick="setPairTrackMode('ai')">自研AI追蹤</button>
           <button type="button" class="btn-ghost" id="btn-side-left" onclick="setPairTrackMode('left')">鎖定左邊</button>
           <button type="button" class="btn-ghost" id="btn-side-right" onclick="setPairTrackMode('right')">鎖定右邊</button>
+        </div>
+        <div class="osmo-assist-row" id="osmo-assist-row">
+          <label for="osmo-assist">
+            <input type="checkbox" id="osmo-assist" onchange="onOsmoAssistChange()" />
+            <span><strong>Osmo 配合</strong>（雲台捉拍）— Module 2 跟蹤你；App 只分析動作，唔同雲台搶鏡。</span>
+          </label>
         </div>
         <div class="actions" style="grid-template-columns:1fr 1fr; gap:8px;">
           <button id="btn-coach-mode" class="btn-ghost" type="button" onclick="toggleCoachMode()">錄教練示範</button>
@@ -515,6 +530,12 @@
         targetHalf = Math.min(0.48, Math.max(0.28, sw * 3.4 + 0.12));
       }
       var a = pairAutoLocked ? 0.16 : 0.28;
+      if (osmoAssist) {
+        // 雲台已捉拍：框偏畫面中央、保持闊，唔大力追左右
+        a = 0.08;
+        targetCx = targetCx * 0.35 + 0.5 * 0.65;
+        targetHalf = Math.max(0.44, Math.min(0.5, targetHalf + 0.08));
+      }
       trackRoi.cx = trackRoi.cx * (1 - a) + targetCx * a;
       trackRoi.halfW = trackRoi.halfW * (1 - a) + targetHalf * a;
       var b = getTrackRoiBounds();
@@ -596,7 +617,7 @@
         lastPairEvalMs = 0;
         aiTrackReason = '';
         trackRoi.cx = 0.5;
-        trackRoi.halfW = 0.46; // 先闊框搜尋，再收窄跟人
+        trackRoi.halfW = osmoAssist ? 0.48 : 0.46; // Osmo：闊框；否則先搜尋再收窄
       } else {
         pairTrackMode = mode === 'right' ? 'right' : 'left';
         pairSide = pairTrackMode;
@@ -611,6 +632,34 @@
     // 兼容舊 onclick（若有）
     function setPairSide(side) {
       setPairTrackMode(side === 'right' ? 'right' : 'left');
+    }
+
+    function applyOsmoRoiDefaults() {
+      if (!osmoAssist) return;
+      // 捉拍交雲台：用近乎全畫面／中央闊框
+      trackRoi.cx = 0.5;
+      trackRoi.halfW = practiceMode === 'pair' ? 0.48 : 0.5;
+    }
+
+    function onOsmoAssistChange() {
+      const el = document.getElementById('osmo-assist');
+      osmoAssist = !!(el && el.checked);
+      try { localStorage.setItem(OSMO_ASSIST_KEY, osmoAssist ? '1' : '0'); } catch (e) {}
+      if (osmoAssist) {
+        applyOsmoRoiDefaults();
+        // 已鎖定後唔使咁密問 Gemini
+        if (pairAutoLocked) lastPairEvalMs = Date.now();
+      }
+      updateFlipButtonLabel();
+    }
+
+    function loadOsmoAssistPreference() {
+      try {
+        osmoAssist = localStorage.getItem(OSMO_ASSIST_KEY) === '1';
+      } catch (e) { osmoAssist = false; }
+      const el = document.getElementById('osmo-assist');
+      if (el) el.checked = osmoAssist;
+      if (osmoAssist) applyOsmoRoiDefaults();
     }
 
     function waitPoseResult(timeoutMs) {
@@ -923,11 +972,13 @@
         canvasCtx.font = '14px sans-serif';
         let lockLabel;
         if (pairTrackMode === 'ai' || pairTrackMode === 'auto') {
-          if (aiTrackInFlight && !pairAutoLocked) lockLabel = '自研追蹤：AI認人中…';
-          else if (pairAutoLocked) lockLabel = '自研追蹤：跟人中（' + (pairSide === 'left' ? '偏左' : '偏右') + '）';
-          else lockLabel = '自研追蹤：搜尋中…';
+          if (aiTrackInFlight && !pairAutoLocked) lockLabel = (osmoAssist ? 'Osmo＋' : '') + 'AI認人中…';
+          else if (pairAutoLocked) lockLabel = osmoAssist
+            ? ('Osmo捉拍 · App分析（' + (pairSide === 'left' ? '偏左' : '偏右') + '）')
+            : ('自研追蹤：跟人中（' + (pairSide === 'left' ? '偏左' : '偏右') + '）');
+          else lockLabel = (osmoAssist ? 'Osmo＋' : '') + '搜尋中…';
         } else {
-          lockLabel = '手動鎖定：' + (pairSide === 'left' ? '左邊' : '右邊');
+          lockLabel = (osmoAssist ? 'Osmo＋' : '') + '手動鎖定：' + (pairSide === 'left' ? '左邊' : '右邊');
         }
         canvasCtx.fillText(lockLabel, 12, 22);
       }
@@ -1061,6 +1112,8 @@
     let pairTrackMode = 'ai'; // ai | left | right
     let pairSide = 'left';     // 實際追蹤邊半邊（由 ROI 中心推斷）
     let trackRoi = { cx: 0.5, halfW: 0.46 }; // 自研數位追蹤框（全畫面正規化）
+    let osmoAssist = false; // 雲台負責捉拍；App 偏中／闊框
+    const OSMO_ASSIST_KEY = 'kendoOsmoAssist';
     let pairAutoLocked = false;
     let pairSideScores = { left: 0, right: 0 };
     let lastPairEvalMs = 0;
@@ -1091,16 +1144,27 @@
       if (hint) {
         if (practiceMode === 'pair') {
           const sideTxt = pairSide === 'left' ? '左邊' : '右邊';
-          const modeTxt = (pairTrackMode === 'ai' || pairTrackMode === 'auto')
-            ? '預設<strong>自研AI追蹤</strong>：Gemini 認持劍者，之後用姿勢中心平滑跟人（唔靠 DJI SDK）。Osmo 只係可選穩定器。'
-            : '而家<strong>手動鎖定' + sideTxt + '</strong>。';
+          var modeTxt;
+          if (osmoAssist) {
+            modeTxt = '已開<strong>Osmo 配合</strong>：撳雲台扳机跟人（捉拍交雲台）；App 用中央闊框分析，唔搶鏡。Module 2、關 Mimo、後鏡頭。';
+          } else if (pairTrackMode === 'ai' || pairTrackMode === 'auto') {
+            modeTxt = '預設<strong>自研AI追蹤</strong>。若用 Osmo Mobile 8P，建議勾「Osmo 配合」。';
+          } else {
+            modeTxt = '而家<strong>手動鎖定' + sideTxt + '</strong>。';
+          }
           hint.innerHTML = currentFacingMode === 'user'
             ? '雙人模式：請切<strong>後鏡頭</strong>。' + modeTxt
-            : '雙人模式：兩人左右企開。' + modeTxt + ' 半邊變暗＝唔追蹤嗰邊。';
+            : '雙人模式：' + modeTxt;
         } else {
-          hint.innerHTML = currentFacingMode === 'user'
-            ? '而家係<strong>前鏡頭</strong>。練劍建議切去<strong>後鏡頭</strong>拍全身。'
-            : '而家係<strong>後鏡頭</strong>。請將手機橫放或請人代拍，保持<strong>全身＋軀幹清楚入鏡</strong>，避免只拍竹刀。';
+          if (osmoAssist) {
+            hint.innerHTML = currentFacingMode === 'user'
+              ? 'Osmo 配合：請切<strong>後鏡頭</strong>。Module 2 開追蹤後，雲台捉拍，App 只分析。'
+              : 'Osmo 配合：雲台跟人入鏡；保持全身清楚。App 唔控制雲台，只做姿勢／竹刀分析。';
+          } else {
+            hint.innerHTML = currentFacingMode === 'user'
+              ? '而家係<strong>前鏡頭</strong>。練劍建議切去<strong>後鏡頭</strong>拍全身。有 Osmo 可勾「Osmo 配合」。'
+              : '而家係<strong>後鏡頭</strong>。請將手機橫放或請人代拍，保持<strong>全身＋軀幹清楚入鏡</strong>，避免只拍竹刀。';
+          }
         }
       }
       // Mirror preview only for front camera (selfie); keep canvas unmirrored for analysis consistency via draw
@@ -1165,12 +1229,20 @@
           try {
             if (practiceMode === 'pair') {
               const now = Date.now();
-              if ((pairTrackMode === 'ai' || pairTrackMode === 'auto') && (now - lastPairEvalMs > PAIR_EVAL_INTERVAL_MS || !pairAutoLocked)) {
+              const evalEvery = osmoAssist ? 5000 : PAIR_EVAL_INTERVAL_MS;
+              if ((pairTrackMode === 'ai' || pairTrackMode === 'auto') && (now - lastPairEvalMs > evalEvery || !pairAutoLocked)) {
                 // 唔 await，避免卡 MediaPipe 幀
                 runAiPairTrack();
               }
+              if (osmoAssist && pairAutoLocked) {
+                trackRoi.cx = 0.5;
+                trackRoi.halfW = 0.48; // 中央闊框，信雲台捉拍
+              }
               drawTrackRoiCrop();
               await pose.send({ image: poseCropCanvas });
+            } else if (osmoAssist) {
+              // 單人＋Osmo：全畫面分析
+              await pose.send({ image: videoElement });
             } else {
               await pose.send({ image: videoElement });
             }
@@ -1215,6 +1287,7 @@
     window.onPracticeModeChange = onPracticeModeChange;
     window.setPairTrackMode = setPairTrackMode;
     window.setPairSide = setPairSide;
+    window.onOsmoAssistChange = onOsmoAssistChange;
 
 
     // ==================== 教練示範標準 ====================
@@ -1512,7 +1585,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=20').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=21').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

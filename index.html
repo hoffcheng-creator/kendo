@@ -343,7 +343,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v23</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v24</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -380,14 +380,15 @@
           </select>
         </div>
         <div class="pair-side-row" id="pair-side-row">
+          <p style="width:100%;margin:0 0 4px;font-size:0.82rem;color:var(--muted);">雙人先要用；有 Osmo 一般保持「自研AI追蹤」就得。</p>
           <button type="button" class="btn-ghost active" id="btn-side-auto" onclick="setPairTrackMode('ai')">自研AI追蹤</button>
           <button type="button" class="btn-ghost" id="btn-side-left" onclick="setPairTrackMode('left')">鎖定左邊</button>
           <button type="button" class="btn-ghost" id="btn-side-right" onclick="setPairTrackMode('right')">鎖定右邊</button>
         </div>
         <div class="osmo-assist-row" id="osmo-assist-row">
           <label for="osmo-assist">
-            <input type="checkbox" id="osmo-assist" onchange="onOsmoAssistChange()" />
-            <span><strong>Osmo 配合</strong>（雲台捉拍）— Module 2 跟蹤你；App 只分析動作，唔同雲台搶鏡。</span>
+            <input type="checkbox" id="osmo-assist" onchange="onOsmoAssistChange()" checked />
+            <span><strong>Osmo 一開即用</strong>（已預設）— 雲台負責捉拍，App 只分析；一般唔使再改其他設定。</span>
           </label>
         </div>
         <div class="actions" style="grid-template-columns:1fr 1fr; gap:8px;">
@@ -417,7 +418,7 @@
         <button id="btn-to-report" class="shutter-side" type="button" onclick="switchToReportPage()" title="診斷報告" disabled style="opacity:0.4;">✓</button>
       </div>
     </div>
-    <p class="hint" id="cam-hint">提示：鏡頭會<strong>自動跟直向／橫向</strong>。手機建議用<strong>後鏡頭</strong>拍全身；首次請允許相機權限。</p>
+    <p class="hint" id="cam-hint">一開即用：已預設 <strong>Osmo 配合</strong>。允許相機後用<strong>後鏡頭</strong>；雲台捉拍，App 分析。直／橫會自動跟。</p>
 
     <div id="realtime-dashboard">
       <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
@@ -685,11 +686,15 @@
 
     function loadOsmoAssistPreference() {
       try {
-        osmoAssist = localStorage.getItem(OSMO_ASSIST_KEY) === '1';
-      } catch (e) { osmoAssist = false; }
+        var raw = localStorage.getItem(OSMO_ASSIST_KEY);
+        // 未設過 → 預設開啟（一開即用）
+        if (raw === null || raw === undefined || raw === '') osmoAssist = true;
+        else osmoAssist = raw === '1';
+      } catch (e) { osmoAssist = true; }
       const el = document.getElementById('osmo-assist');
       if (el) el.checked = osmoAssist;
       if (osmoAssist) applyOsmoRoiDefaults();
+      try { localStorage.setItem(OSMO_ASSIST_KEY, osmoAssist ? '1' : '0'); } catch (e2) {}
     }
 
     function waitPoseResult(timeoutMs) {
@@ -1199,7 +1204,7 @@
     let pairTrackMode = 'ai'; // ai | left | right
     let pairSide = 'left';     // 實際追蹤邊半邊（由 ROI 中心推斷）
     let trackRoi = { cx: 0.5, halfW: 0.46 }; // 自研數位追蹤框（全畫面正規化）
-    let osmoAssist = false; // 雲台負責捉拍；App 偏中／闊框
+    let osmoAssist = true; // 預設一開即用：雲台捉拍，App 分析
     const OSMO_ASSIST_KEY = 'kendoOsmoAssist';
     let pairAutoLocked = false;
     let pairSideScores = { left: 0, right: 0 };
@@ -1836,7 +1841,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=23').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=24').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

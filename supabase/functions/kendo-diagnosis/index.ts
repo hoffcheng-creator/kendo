@@ -81,12 +81,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
         /^data:image\/\w+;base64,/,
         "",
       ).trim();
-      const mimeType = String(payload.mimeType ?? "image/jpeg").trim() || "image/jpeg";
+      const mimeTypeRaw = String(payload.mimeType ?? "image/jpeg").trim().toLowerCase() || "image/jpeg";
+      const mimeType = (mimeTypeRaw === "image/png" || mimeTypeRaw === "image/webp" || mimeTypeRaw === "image/jpeg" || mimeTypeRaw === "image/jpg")
+        ? (mimeTypeRaw === "image/jpg" ? "image/jpeg" : mimeTypeRaw)
+        : "image/jpeg";
       if (!imageBase64 || imageBase64.length < 80) {
         return jsonResponse({ error: "Missing imageBase64 for track" }, 400);
       }
+      if (!/^[A-Za-z0-9+/=
+]+$/.test(imageBase64)) {
+        return jsonResponse({ error: "Invalid imageBase64 charset" }, 400);
+      }
       // 限制體積，避免過大 payload
-      if (imageBase64.length > 1_800_000) {
+      if (imageBase64.length > 1_200_000) {
         return jsonResponse({ error: "imageBase64 too large" }, 413);
       }
 
@@ -562,7 +569,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.error("Unhandled error:", err);
     return jsonResponse({
       error: "Internal server error",
-      detail: err instanceof Error ? err.message : String(err),
+      code: "INTERNAL",
     }, 500);
   }
 });

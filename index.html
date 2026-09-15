@@ -121,13 +121,13 @@
     }
     .video-wrap.loading .cam-loading { opacity: 1; }
     .video-wrap.preview-live > video#webcam {
-      display: block !important; z-index: 1; object-fit: cover; background: #000;
+      display: block !important; z-index: 1; object-fit: cover; background: #111;
+      opacity: 1 !important; /* 永遠保留鏡頭底層，避免黑屏 */
     }
-    .video-wrap.preview-live:not(.pose-ready) > canvas {
-      opacity: 0; pointer-events: none;
+    .video-wrap.preview-live > canvas {
+      z-index: 2; background: transparent;
     }
-    .video-wrap.pose-ready > canvas { opacity: 1; z-index: 2; }
-    .video-wrap.pose-ready > video#webcam { opacity: 0; }
+    /* 唔再隱藏 video；canvas 只疊骨架 */
     .focus-pip {
       position: absolute; z-index: 6; width: 54px; height: 54px; margin: -27px 0 0 -27px;
       border: 2px solid rgba(56,189,248,0.95); border-radius: 8px; pointer-events: none;
@@ -334,7 +334,16 @@
         max-height: 168px !important;
         aspect-ratio: auto !important;
       }
-      .cam-start-overlay .cam-start-btn {
+      .cam-launch {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      margin: 8px auto 12px; padding: 14px; max-width: 480px;
+      border: 1px solid rgba(56,189,248,0.35); border-radius: 14px;
+      background: rgba(14,165,233,0.1);
+    }
+    .cam-launch .cam-start-btn { width: min(100%, 320px); }
+    .cam-launch p { margin: 0; color: var(--muted); font-size: 0.88rem; text-align: center; }
+    body.cam-fs-active .cam-launch { display: none; }
+    .cam-start-overlay .cam-start-btn {
         min-height: 52px; font-size: 1.05rem; width: min(90%, 280px);
       }
     }
@@ -360,10 +369,12 @@
     .cam-start-overlay p { margin: 0; color: #cbd5e1; font-size: 0.85rem; }
     .video-wrap.cam-fs {
       position: fixed !important;
-      inset: 0 !important;
+      left: 0 !important; right: 0 !important;
+      top: 0 !important; bottom: 0 !important;
       z-index: 2000;
       width: 100% !important;
       max-width: none !important;
+      height: 100% !important;
       height: 100dvh !important;
       max-height: none !important;
       min-height: 0 !important;
@@ -371,8 +382,13 @@
       margin: 0 !important;
       border-radius: 0 !important;
       border: none !important;
+      background: #111 !important;
     }
     body.cam-fs-active { overflow: hidden; }
+    /* 緊急退出：永遠喺最頂，避免黑屏困住 */
+    .btn-close-cam {
+      z-index: 10050 !important;
+    }
     .video-wrap.cam-fs .cam-start-overlay { display: none !important; }
     .video-wrap.cam-fs .btn-close-cam {
       display: flex !important;
@@ -424,7 +440,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v28</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v29</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -486,10 +502,13 @@
       </div>
     </div>
 
+    <div class="cam-launch" id="cam-launch">
+      <button type="button" class="cam-start-btn" id="btn-start-cam" onclick="enterCameraFullscreen(event)">啟動鏡頭</button>
+      <p id="cam-launch-hint">會先要求相機權限，成功先入全畫面（唔會淨係黑屏）。</p>
+    </div>
     <div class="video-wrap portrait collapsed" id="video-wrap">
-      <div class="cam-start-overlay" id="cam-start-overlay">
-        <button type="button" class="cam-start-btn" id="btn-start-cam" onclick="enterCameraFullscreen(event)">啟動鏡頭</button>
-        <p>撳一下全畫面練習；停錄會自動縮返細</p>
+      <div class="cam-start-overlay" id="cam-start-overlay" style="display:none !important;" aria-hidden="true">
+        <p>啟動中…</p>
       </div>
       <button type="button" class="btn-close-cam" id="btn-close-cam" onclick="exitCameraFullscreen(event)">收起</button>
       <div class="cam-loading" id="cam-loading">正在開啟相機…</div>
@@ -505,7 +524,7 @@
         <button id="btn-to-report" class="shutter-side" type="button" onclick="switchToReportPage()" title="診斷報告" disabled style="opacity:0.4;">✓</button>
       </div>
     </div>
-    <p class="hint" id="cam-hint">撳<strong>啟動鏡頭</strong>進入全畫面；錄完停掣會縮返細預覽。已預設 Osmo 配合。</p>
+    <p class="hint" id="cam-hint">撳上方紅色<strong>啟動鏡頭</strong>（會先問權限）。見到畫面先入全畫面；停錄會縮返。若之前黑屏，呢版已修正。</p>
 
     <div id="realtime-dashboard">
       <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
@@ -1363,41 +1382,52 @@
       wrap.classList.toggle('collapsed', !fs);
       document.body.classList.toggle('cam-fs-active', fs);
       var startBtn = document.getElementById('btn-start-cam');
-      if (startBtn) {
-        startBtn.textContent = mediaStream ? '繼續全畫面' : '啟動鏡頭';
+      if (startBtn && !startBtn.disabled) {
+        startBtn.textContent = mediaStream ? (fs ? '鏡頭使用中' : '進入全畫面') : '啟動鏡頭';
       }
-      var overlayP = document.querySelector('#cam-start-overlay p');
-      if (overlayP) {
-        overlayP.textContent = mediaStream
-          ? '已有預覽；撳入全畫面繼續錄'
-          : '撳一下全畫面練習；停錄會自動縮返細';
-      }
+      var launch = document.getElementById('cam-launch');
+      if (launch) launch.style.display = fs ? 'none' : '';
     }
 
     async function enterCameraFullscreen(ev) {
       if (ev && ev.stopPropagation) ev.stopPropagation();
-      setCameraStage('fullscreen');
-      if (!mediaStream) {
-        try {
-          await startCamera(IS_MOBILE_UA ? 'environment' : 'user');
-        } catch (e) {
+      var startBtn = document.getElementById('btn-start-cam');
+      var launchHint = document.getElementById('cam-launch-hint');
+      if (startBtn) { startBtn.disabled = true; startBtn.textContent = '開啟中…請允許權限'; }
+      if (launchHint) launchHint.textContent = '若出現權限視窗請撳「允許」。成功先會入全畫面。';
+      // 關鍵：先開相機，成功先至 fullscreen，避免黑屏蓋住權限彈窗
+      setCameraStage('collapsed');
+      setCamLoading(true, '請允許使用相機…');
+      try {
+        if (!mediaStream) {
           try {
+            await startCamera(IS_MOBILE_UA ? 'environment' : 'user');
+          } catch (e1) {
             await startCamera('user');
-          } catch (e2) {
-            setCameraStage('collapsed');
-            alert('開啟鏡頭失敗：' + ((e2 && (e2.message || e2.name)) || (e && (e.message || e.name)) || e2 || e));
-            return;
           }
         }
         if (!mediaStream) {
-          setCameraStage('collapsed');
+          throw new Error('未取得鏡頭（可能拒絕咗權限）');
         }
-      } else {
         showLivePreview();
+        setCameraStage('fullscreen');
         if (!poseReady) startPreviewLoop();
         else startPoseLoop();
+        setGuideStep(1);
+        if (launchHint) launchHint.textContent = '鏡頭已開。停錄或撳「收起」會返嚟。';
+      } catch (e) {
+        setCameraStage('collapsed');
+        setCamLoading(false);
+        var msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e);
+        alert('開啟鏡頭失敗：' + msg + '\n請到 Safari／Chrome 設定允許此網站使用相機。');
+        if (launchHint) launchHint.textContent = '開啟失敗：' + msg;
+      } finally {
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.textContent = mediaStream ? '進入全畫面' : '啟動鏡頭';
+        }
+        setCamLoading(false);
       }
-      setGuideStep(1);
     }
 
     function exitCameraFullscreen(ev) {
@@ -1666,6 +1696,8 @@
       var wrap = document.getElementById('video-wrap');
       if (wrap) wrap.classList.add('preview-live');
       videoElement.style.display = 'block';
+      videoElement.style.opacity = '1';
+      videoElement.style.zIndex = '1';
     }
 
     function startPreviewLoop() {
@@ -2269,7 +2301,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=28').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=29').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

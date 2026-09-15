@@ -315,14 +315,30 @@
 
     .video-wrap.collapsed {
       position: relative;
-      width: 100%;
-      max-width: 420px;
-      height: 148px;
-      min-height: 148px;
-      aspect-ratio: auto;
-      margin: 0 auto;
+      width: 100% !important;
+      max-width: 420px !important;
+      height: 160px !important;
+      min-height: 160px !important;
+      max-height: 160px !important;
+      aspect-ratio: auto !important;
+      margin: 0 auto !important;
       cursor: pointer;
     }
+    @media (max-width: 640px) {
+      .video-wrap.collapsed,
+      .video-wrap.portrait.collapsed,
+      .video-wrap.landscape.collapsed {
+        width: 100% !important;
+        height: 168px !important;
+        min-height: 168px !important;
+        max-height: 168px !important;
+        aspect-ratio: auto !important;
+      }
+      .cam-start-overlay .cam-start-btn {
+        min-height: 52px; font-size: 1.05rem; width: min(90%, 280px);
+      }
+    }
+
     .video-wrap.collapsed .shutter-wrap,
     .video-wrap.collapsed .rec-dot,
     .video-wrap.collapsed .cam-loading { display: none !important; }
@@ -408,7 +424,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v27</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v28</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -555,6 +571,66 @@
     const SUPABASE_URL = 'https://iyabvbrznxfbcnltvhfc.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_dCZI8ZtaxF-mRbptwHFxeQ_vY2s__qO';
     const KENDO_FN_URL = SUPABASE_URL + '/functions/v1/kendo-diagnosis';
+
+    // 早期掛上全域函式，避免手機 onclick � ReferenceError
+    window.__kendoBootError = null;
+    window.onerror = function (msg, src, line, col, err) {
+      try {
+        window.__kendoBootError = String(msg || (err && err.message) || 'error');
+        var el = document.getElementById('cam-hint');
+        if (el) el.textContent = '頁面錯誤：' + window.__kendoBootError + '（第' + (line || '?') + '行）';
+      } catch (e) {}
+      return false;
+    };
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // 只准安全標籤，降低 Gemini HTML XSS 風險
+    function sanitizeBasicHtml(input) {
+      var raw = String(input == null ? '' : input);
+      if (!raw) return '';
+      try {
+        var doc = new DOMParser().parseFromString('<div id="root">' + raw + '</div>', 'text/html');
+        var root = doc.getElementById('root') || doc.body;
+        var allowed = { P:1, BR:1, UL:1, OL:1, LI:1, STRONG:1, B:1, EM:1, I:1, H1:1, H2:1, H3:1, H4:1, SPAN:1, DIV:1 };
+        function clean(node) {
+          var children = Array.prototype.slice.call(node.childNodes || []);
+          for (var i = 0; i < children.length; i++) {
+            var c = children[i];
+            if (c.nodeType === 1) {
+              var tag = c.tagName;
+              if (!allowed[tag]) {
+                while (c.firstChild) node.insertBefore(c.firstChild, c);
+                node.removeChild(c);
+                continue;
+              }
+              // strip attrs except harmless class
+              var attrs = Array.prototype.slice.call(c.attributes || []);
+              for (var a = 0; a < attrs.length; a++) {
+                var n = attrs[a].name.toLowerCase();
+                if (n === 'class') continue;
+                c.removeAttribute(attrs[a].name);
+              }
+              clean(c);
+            } else if (c.nodeType === 8) {
+              node.removeChild(c);
+            }
+          }
+        }
+        clean(root);
+        return root.innerHTML;
+      } catch (e) {
+        return '<p>' + escapeHtml(raw) + '</p>';
+      }
+    }
+
 
     let currentMetrics = { elbowAngle: '0.0', wristDiff: '0.000', shinaiAngle: null, tipX: null, tipY: null, shinaiLocked: false };
     let maxElbowAngleRecorded = 0; // 紀錄揮力最高點
@@ -1099,8 +1175,10 @@
         const shinai = estimateShinai(landmarks);
 
         if (!check.ok) {
-          const bodyConnections = POSE_CONNECTIONS.filter(conn => conn[0] > 10 && conn[1] > 10);
-          drawConnectors(canvasCtx, landmarks, bodyConnections, { color: 'rgba(255,80,80,0.35)', lineWidth: 2 });
+          if (typeof POSE_CONNECTIONS !== 'undefined' && typeof drawConnectors === 'function') {
+            const bodyConnections = POSE_CONNECTIONS.filter(conn => conn[0] > 10 && conn[1] > 10);
+            drawConnectors(canvasCtx, landmarks, bodyConnections, { color: 'rgba(255,80,80,0.35)', lineWidth: 2 });
+          }
           if (shinai && shinai.tip) drawShinaiOverlay(shinai, false);
           const tip = check.reason === 'scale' ? '請拉遠／全身入鏡'
             : check.reason === 'torso' ? '請面向鏡頭、顯露軀幹'
@@ -1116,8 +1194,10 @@
 
         setLockTag('rt-pose-lock', 'good', '已鎖定');
         updateTrackRoiFromLandmarks(landmarks);
-        const bodyConnections = POSE_CONNECTIONS.filter(conn => conn[0] > 10 && conn[1] > 10);
-        drawConnectors(canvasCtx, landmarks, bodyConnections, { color: '#22c55e', lineWidth: 3 });
+        if (typeof POSE_CONNECTIONS !== 'undefined' && typeof drawConnectors === 'function') {
+          const bodyConnections = POSE_CONNECTIONS.filter(conn => conn[0] > 10 && conn[1] > 10);
+          drawConnectors(canvasCtx, landmarks, bodyConnections, { color: '#22c55e', lineWidth: 3 });
+        }
 
         for (let i = 11; i < landmarks.length; i++) {
           const lm = landmarks[i];
@@ -1780,11 +1860,33 @@
       setCameraStage('collapsed');
     })();
 
-    window.switchCamera = switchCamera;
-    window.onPracticeModeChange = onPracticeModeChange;
-    window.setPairTrackMode = setPairTrackMode;
-    window.setPairSide = setPairSide;
-    window.onOsmoAssistChange = onOsmoAssistChange;
+    (function bindCamButtonsNow() {
+      function bind() {
+        var btn = document.getElementById('btn-start-cam');
+        if (btn && btn.getAttribute('data-bound') !== '1') {
+          btn.setAttribute('data-bound', '1');
+          btn.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            enterCameraFullscreen(ev);
+          }, false);
+        }
+        var closeBtn = document.getElementById('btn-close-cam');
+        if (closeBtn && closeBtn.getAttribute('data-bound') !== '1') {
+          closeBtn.setAttribute('data-bound', '1');
+          closeBtn.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            exitCameraFullscreen(ev);
+          }, false);
+        }
+      }
+      bind();
+      setTimeout(bind, 0);
+    })();
+
+
+    // window exports moved to end (after all function decls)
 
 
     // ==================== 教練示範標準 ====================
@@ -1841,7 +1943,7 @@
 
     function saveCoachBaselineFromRecording() {
       if (poseFramesInRecording < 5 || elbowSamples.length < 3 || maxElbowAngleRecorded <= 0) {
-        alert('教練示範未夠清楚偵測到骨架／角度。\\n請用後鏡頭、全身入鏡再錄一次。');
+        alert('教練示範未夠清楚偵測到骨架／角度。\n請用後鏡頭、全身入鏡再錄一次。');
         coachModeActive = true;
         refreshCoachBaselineUI();
         return;
@@ -1868,7 +1970,7 @@
         recStatus.innerText = '教練標準已儲存';
         recStatus.style.background = '#0369a1';
       }
-      alert('已儲存教練示範作為標準。\\n之後學員錄影診斷會對照此標準 + 文獻基準。');
+      alert('已儲存教練示範作為標準。\n之後學員錄影診斷會對照此標準 + 文獻基準。');
     }
 
     function buildCoachCompareHtml(student, coach) {
@@ -2131,26 +2233,43 @@
         if (!res.ok) {
           throw new Error((data && (data.error || data.detail)) || ('HTTP ' + res.status));
         }
-        diagnosisEl.innerHTML = data.diagnosis || '<p>未有診斷內容</p>';
-        practiceEl.innerHTML = data.practicePlan || '<p>未有練習菜單</p>';
+        diagnosisEl.innerHTML = sanitizeBasicHtml(data.diagnosis || '<p>未有診斷內容</p>');
+        practiceEl.innerHTML = sanitizeBasicHtml(data.practicePlan || '<p>未有練習菜單</p>');
         const bn = document.getElementById('benchmark-notes');
         if (bn) {
-          bn.innerHTML = data.benchmarkNotes || '<p>已對照文獻啟發式基準（筑波系正面打突模型／八段面打研究）。</p>';
+          bn.innerHTML = sanitizeBasicHtml(data.benchmarkNotes || '<p>已對照文獻啟發式基準（筑波系正面打突模型／八段面打研究）。</p>');
         }
       } catch (err) {
         console.error(err);
-        diagnosisEl.innerHTML = '<p style="color:#ff6b6b;">AI 診斷失敗：' + (err.message || err) + '</p>';
+        diagnosisEl.innerHTML = '<p style="color:#ff6b6b;">AI 診斷失敗：' + escapeHtml(err.message || err) + '</p>';
         practiceEl.innerHTML = '<p>請稍後再試，或檢查 Edge Function / Gemini Key 設定。</p>';
         const bn = document.getElementById('benchmark-notes');
         if (bn) bn.innerHTML = '<p>文獻對照未能生成（AI 呼叫失敗）。</p>';
       }
     }
+
+    // 全部掛到 window，確保 iOS Safari inline onclick 可用
+    window.switchCamera = switchCamera;
+    window.onPracticeModeChange = onPracticeModeChange;
+    window.setPairTrackMode = setPairTrackMode;
+    window.setPairSide = setPairSide;
+    window.onOsmoAssistChange = onOsmoAssistChange;
+    window.toggleRecording = toggleRecording;
+    window.switchToReportPage = switchToReportPage;
+    window.switchToCameraPage = switchToCameraPage;
+    window.setPlaySpeed = setPlaySpeed;
+    window.pauseAtPeak = pauseAtPeak;
+    window.toggleCoachMode = toggleCoachMode;
+    window.clearCoachBaseline = clearCoachBaseline;
+    window.enterCameraFullscreen = enterCameraFullscreen;
+    window.exitCameraFullscreen = exitCameraFullscreen;
+    window.sanitizeBasicHtml = sanitizeBasicHtml;
   
   </script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=27').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=28').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

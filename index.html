@@ -357,8 +357,6 @@
       border: none !important;
     }
     body.cam-fs-active { overflow: hidden; }
-    body.cam-fs-active .shell > :not(#page-1),
-    body.cam-fs-active #page-1 > :not(#video-wrap) { visibility: hidden; }
     .video-wrap.cam-fs .cam-start-overlay { display: none !important; }
     .video-wrap.cam-fs .btn-close-cam {
       display: flex !important;
@@ -410,7 +408,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v26</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v27</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -1303,7 +1301,16 @@
         try {
           await startCamera(IS_MOBILE_UA ? 'environment' : 'user');
         } catch (e) {
-          try { await startCamera('user'); } catch (e2) {}
+          try {
+            await startCamera('user');
+          } catch (e2) {
+            setCameraStage('collapsed');
+            alert('開啟鏡頭失敗：' + ((e2 && (e2.message || e2.name)) || (e && (e.message || e.name)) || e2 || e));
+            return;
+          }
+        }
+        if (!mediaStream) {
+          setCameraStage('collapsed');
         }
       } else {
         showLivePreview();
@@ -1885,24 +1892,84 @@
         '</ul>';
     }
 
+
+    function pickRecorderMime() {
+      if (typeof MediaRecorder === 'undefined') return null;
+      var candidates = [
+        'video/mp4',
+        'video/mp4;codecs=avc1',
+        'video/webm;codecs=vp8,opus',
+        'video/webm;codecs=vp8',
+        'video/webm'
+      ];
+      for (var i = 0; i < candidates.length; i++) {
+        try {
+          if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidates[i])) {
+            return candidates[i];
+          }
+        } catch (e) {}
+      }
+      return ''; // let browser pick default
+    }
+
+    function getRecordStream() {
+      // 優先錄 canvas（有骨架）；iOS 若不支援 captureStream 就退回鏡頭軌
+      try {
+        if (canvasElement && typeof canvasElement.captureStream === 'function') {
+          var cs = canvasElement.captureStream(30);
+          if (cs && cs.getTracks && cs.getTracks().length) return cs;
+        }
+      } catch (e) {}
+      if (mediaStream) return mediaStream;
+      if (videoElement && videoElement.srcObject) return videoElement.srcObject;
+      return null;
+    }
+
     // ==================== 錄影功能 (MediaRecorder) ====================
     function toggleRecording() {
       const recBtn = document.getElementById('btn-rec');
       const recStatus = document.getElementById('rec-status');
 
       if (!isRecording) {
-        // 開始錄影（錄製 Canvas 畫面，這樣能把骨架一起錄進去）
+        // 開始錄影（優先 Canvas；iOS 自動揀 mp4／預設格式）
+        if (!mediaStream && !(videoElement && videoElement.srcObject)) {
+          alert('請先撳「啟動鏡頭」再開錄影。');
+          return;
+        }
         recordedChunks = [];
         maxElbowAngleRecorded = 0;
         poseFramesInRecording = 0;
         elbowSamples = [];
-        const stream = canvasElement.captureStream(30); // 30 FPS
-        
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        var stream = getRecordStream();
+        if (!stream) {
+          alert('無法取得錄影畫面，請重新啟動鏡頭。');
+          return;
+        }
+        if (typeof MediaRecorder === 'undefined') {
+          alert('呢部 iPhone／瀏覽器唔支援網頁錄影（MediaRecorder）。請用最新 Safari，或改用桌面 Chrome 試。');
+          return;
+        }
+        try {
+          var mime = pickRecorderMime();
+          mediaRecorder = mime
+            ? new MediaRecorder(stream, { mimeType: mime })
+            : new MediaRecorder(stream);
+        } catch (errRec) {
+          try {
+            mediaRecorder = new MediaRecorder(stream);
+          } catch (errRec2) {
+            alert('無法開始錄影：' + (errRec2.message || errRec2.name || errRec2));
+            return;
+          }
+        }
         mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
         mediaRecorder.onstop = saveVideo;
-        
-        mediaRecorder.start();
+        try {
+          mediaRecorder.start();
+        } catch (errStart) {
+          alert('錄影啟動失敗：' + (errStart.message || errStart.name || errStart));
+          return;
+        }
         isRecording = true;
 
         recBtn.classList.add('recording');
@@ -1955,7 +2022,12 @@
     }
 
     function saveVideo() {
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      var t = (mediaRecorder && mediaRecorder.mimeType) ? mediaRecorder.mimeType : 'video/mp4';
+      if (!t || t === 'video/webm') {
+        // iOS 較易播 mp4；若實際係 webm 仍標 webm
+        if (recordedChunks.length && recordedChunks[0].type) t = recordedChunks[0].type;
+      }
+      const blob = new Blob(recordedChunks, { type: t || 'video/mp4' });
       recordedVideoURL = URL.createObjectURL(blob);
       replayVideo.src = recordedVideoURL;
     }
@@ -2078,7 +2150,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=26').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=27').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

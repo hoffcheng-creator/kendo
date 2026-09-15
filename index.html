@@ -312,6 +312,66 @@
       }
     }
 
+
+    .video-wrap.collapsed {
+      position: relative;
+      width: 100%;
+      max-width: 420px;
+      height: 148px;
+      min-height: 148px;
+      aspect-ratio: auto;
+      margin: 0 auto;
+      cursor: pointer;
+    }
+    .video-wrap.collapsed .shutter-wrap,
+    .video-wrap.collapsed .rec-dot,
+    .video-wrap.collapsed .cam-loading { display: none !important; }
+    .video-wrap.collapsed > video#webcam,
+    .video-wrap.collapsed > canvas {
+      opacity: 0.35; filter: brightness(0.7);
+    }
+    .cam-start-overlay {
+      position: absolute; inset: 0; z-index: 8;
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; background: rgba(7,10,14,0.55); color: #f3f6fa; text-align: center; padding: 12px;
+    }
+    .video-wrap.collapsed .cam-start-overlay { display: flex; }
+    .cam-start-overlay .cam-start-btn {
+      min-height: 48px; padding: 12px 22px; border-radius: 999px; border: none;
+      background: linear-gradient(135deg, #e11d48, #be123c); color: #fff;
+      font-weight: 700; font-size: 1rem; box-shadow: var(--shadow); cursor: pointer;
+    }
+    .cam-start-overlay p { margin: 0; color: #cbd5e1; font-size: 0.85rem; }
+    .video-wrap.cam-fs {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 2000;
+      width: 100% !important;
+      max-width: none !important;
+      height: 100dvh !important;
+      max-height: none !important;
+      min-height: 0 !important;
+      aspect-ratio: auto !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+      border: none !important;
+    }
+    body.cam-fs-active { overflow: hidden; }
+    body.cam-fs-active .shell > :not(#page-1),
+    body.cam-fs-active #page-1 > :not(#video-wrap) { visibility: hidden; }
+    .video-wrap.cam-fs .cam-start-overlay { display: none !important; }
+    .video-wrap.cam-fs .btn-close-cam {
+      display: flex !important;
+    }
+    .btn-close-cam {
+      display: none;
+      position: absolute; left: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); z-index: 9;
+      min-height: 40px; padding: 8px 14px; border-radius: 999px; border: none;
+      background: rgba(0,0,0,0.65); color: #fff; font-weight: 600; cursor: pointer;
+    }
+    .video-wrap.cam-fs .shutter-wrap {
+      bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    }
     .steps {
       display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px;
     }
@@ -350,7 +410,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v25</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v26</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -412,7 +472,12 @@
       </div>
     </div>
 
-    <div class="video-wrap portrait" id="video-wrap">
+    <div class="video-wrap portrait collapsed" id="video-wrap">
+      <div class="cam-start-overlay" id="cam-start-overlay">
+        <button type="button" class="cam-start-btn" id="btn-start-cam" onclick="enterCameraFullscreen(event)">啟動鏡頭</button>
+        <p>撳一下全畫面練習；停錄會自動縮返細</p>
+      </div>
+      <button type="button" class="btn-close-cam" id="btn-close-cam" onclick="exitCameraFullscreen(event)">收起</button>
       <div class="cam-loading" id="cam-loading">正在開啟相機…</div>
       <div class="focus-pip" id="focus-pip" aria-hidden="true"></div>
       <div class="rec-dot" id="rec-pill"><i></i>REC</div>
@@ -426,7 +491,7 @@
         <button id="btn-to-report" class="shutter-side" type="button" onclick="switchToReportPage()" title="診斷報告" disabled style="opacity:0.4;">✓</button>
       </div>
     </div>
-    <p class="hint" id="cam-hint">一開即用：已預設 <strong>Osmo 配合</strong>。後鏡頭＋盡量開連續對焦；畫面可<strong>輕撳對焦</strong>。直／橫自動跟。</p>
+    <p class="hint" id="cam-hint">撳<strong>啟動鏡頭</strong>進入全畫面；錄完停掣會縮返細預覽。已預設 Osmo 配合。</p>
 
     <div id="realtime-dashboard">
       <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
@@ -1208,6 +1273,69 @@
     let mediaStream = null;
     let rafId = null;
     let hasRecordedClip = false;
+
+    let cameraStage = 'collapsed'; // collapsed | fullscreen
+
+    function setCameraStage(stage) {
+      cameraStage = stage;
+      var wrap = document.getElementById('video-wrap');
+      if (!wrap) return;
+      var fs = stage === 'fullscreen';
+      wrap.classList.toggle('cam-fs', fs);
+      wrap.classList.toggle('collapsed', !fs);
+      document.body.classList.toggle('cam-fs-active', fs);
+      var startBtn = document.getElementById('btn-start-cam');
+      if (startBtn) {
+        startBtn.textContent = mediaStream ? '繼續全畫面' : '啟動鏡頭';
+      }
+      var overlayP = document.querySelector('#cam-start-overlay p');
+      if (overlayP) {
+        overlayP.textContent = mediaStream
+          ? '已有預覽；撳入全畫面繼續錄'
+          : '撳一下全畫面練習；停錄會自動縮返細';
+      }
+    }
+
+    async function enterCameraFullscreen(ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      setCameraStage('fullscreen');
+      if (!mediaStream) {
+        try {
+          await startCamera(IS_MOBILE_UA ? 'environment' : 'user');
+        } catch (e) {
+          try { await startCamera('user'); } catch (e2) {}
+        }
+      } else {
+        showLivePreview();
+        if (!poseReady) startPreviewLoop();
+        else startPoseLoop();
+      }
+      setGuideStep(1);
+    }
+
+    function exitCameraFullscreen(ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (typeof isRecording !== 'undefined' && isRecording) {
+        // 錄影中收起 = 先停錄
+        try { toggleRecording(); } catch (e) {}
+        return;
+      }
+      setCameraStage('collapsed');
+    }
+
+    window.enterCameraFullscreen = enterCameraFullscreen;
+    window.exitCameraFullscreen = exitCameraFullscreen;
+
+    (function bindCollapsedCamTap() {
+      var wrap = document.getElementById('video-wrap');
+      if (!wrap || wrap.getAttribute('data-cam-stage-bound') === '1') return;
+      wrap.setAttribute('data-cam-stage-bound', '1');
+      wrap.addEventListener('click', function (ev) {
+        if (cameraStage !== 'collapsed') return;
+        if (ev.target && ev.target.closest && ev.target.closest('button')) return;
+        enterCameraFullscreen(ev);
+      });
+    })();
     let practiceMode = 'solo'; // solo | pair
     let pairTrackMode = 'ai'; // ai | left | right
     let pairSide = 'left';     // 實際追蹤邊半邊（由 ROI 中心推斷）
@@ -1641,12 +1769,8 @@
       if (typeof refreshCoachBaselineUI === "function") refreshCoachBaselineUI();
       onPracticeModeChange();
       if (typeof loadOsmoAssistPreference === "function") loadOsmoAssistPreference();
-      // 先開鏡頭（快），Pose 喺 startCamera 內背景載
-      try {
-        await startCamera(IS_MOBILE_UA ? 'environment' : 'user');
-      } catch (e) {
-        try { await startCamera('user'); } catch (e2) {}
-      }
+      // 唔自動開鏡：等用戶撳「啟動鏡頭」先全畫面（更 user-friendly）
+      setCameraStage('collapsed');
     })();
 
     window.switchCamera = switchCamera;
@@ -1803,6 +1927,8 @@
         recBtn.classList.remove('recording');
         const pill = document.getElementById('rec-pill');
         if (pill) pill.classList.remove('on');
+        // 停錄 → 縮返細個鏡頭
+        setCameraStage('collapsed');
 
         if (wasCoach) {
           // MediaRecorder onstop is async; delay slightly so samples are final
@@ -1846,6 +1972,7 @@
 
     // ==================== SPA 頁面切換 ====================
     function switchToReportPage() {
+      if (cameraStage === 'fullscreen') setCameraStage('collapsed');
       if (!hasRecordedClip && !recordedVideoURL) {
         alert('請先完成一次錄影，再產生診斷報告。');
         return;
@@ -1951,7 +2078,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=25').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=26').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

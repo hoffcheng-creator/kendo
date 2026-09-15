@@ -572,7 +572,7 @@
     const SUPABASE_ANON_KEY = 'sb_publishable_dCZI8ZtaxF-mRbptwHFxeQ_vY2s__qO';
     const KENDO_FN_URL = SUPABASE_URL + '/functions/v1/kendo-diagnosis';
 
-    // 早期掛上全域函式，避免手機 onclick � ReferenceError
+    // 早期掛上全域函式，避免手機 onclick ReferenceError
     window.__kendoBootError = null;
     window.onerror = function (msg, src, line, col, err) {
       try {

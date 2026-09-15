@@ -128,6 +128,13 @@
     }
     .video-wrap.pose-ready > canvas { opacity: 1; z-index: 2; }
     .video-wrap.pose-ready > video#webcam { opacity: 0; }
+    .focus-pip {
+      position: absolute; z-index: 6; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+      border: 2px solid rgba(56,189,248,0.95); border-radius: 8px; pointer-events: none;
+      opacity: 0; transition: opacity 0.15s ease;
+    }
+    .focus-pip.show { opacity: 1; }
+
 
     .video-wrap video, .video-wrap canvas {
       position: absolute; inset: 0; width: 100%; height: 100%;
@@ -343,7 +350,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v24</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v25</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -407,6 +414,7 @@
 
     <div class="video-wrap portrait" id="video-wrap">
       <div class="cam-loading" id="cam-loading">正在開啟相機…</div>
+      <div class="focus-pip" id="focus-pip" aria-hidden="true"></div>
       <div class="rec-dot" id="rec-pill"><i></i>REC</div>
       <video id="webcam" playsinline muted webkit-playsinline style="display:none;"></video>
       <canvas id="output_canvas" width="720" height="1280"></canvas>
@@ -418,7 +426,7 @@
         <button id="btn-to-report" class="shutter-side" type="button" onclick="switchToReportPage()" title="診斷報告" disabled style="opacity:0.4;">✓</button>
       </div>
     </div>
-    <p class="hint" id="cam-hint">一開即用：已預設 <strong>Osmo 配合</strong>。允許相機後用<strong>後鏡頭</strong>；雲台捉拍，App 分析。直／橫會自動跟。</p>
+    <p class="hint" id="cam-hint">一開即用：已預設 <strong>Osmo 配合</strong>。後鏡頭＋盡量開連續對焦；畫面可<strong>輕撳對焦</strong>。直／橫自動跟。</p>
 
     <div id="realtime-dashboard">
       <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
@@ -1344,6 +1352,101 @@
       videoElement.srcObject = null;
     }
 
+
+    async function applyContinuousAutofocus(stream) {
+      if (!stream) return { ok: false, reason: 'no_stream' };
+      var track = stream.getVideoTracks()[0];
+      if (!track || typeof track.getCapabilities !== 'function') {
+        return { ok: false, reason: 'no_caps' };
+      }
+      var caps = {};
+      try { caps = track.getCapabilities() || {}; } catch (e) { return { ok: false, reason: 'caps_err' }; }
+      var modes = caps.focusMode || caps.focusModes || [];
+      if (!modes || !modes.length) return { ok: false, reason: 'no_focus_mode' };
+
+      var preferred = null;
+      if (modes.indexOf('continuous') >= 0) preferred = 'continuous';
+      else if (modes.indexOf('single-shot') >= 0) preferred = 'single-shot';
+      else if (modes.indexOf('manual') >= 0) preferred = null;
+
+      if (!preferred) return { ok: false, reason: 'unsupported', modes: modes };
+
+      var attempts = [
+        { advanced: [{ focusMode: preferred }] },
+        { focusMode: preferred }
+      ];
+      // 有啲機支援自動曝光／白平衡一齊開，畫面對焦會穩啲
+      if ((caps.exposureMode || []).indexOf && (caps.exposureMode || []).indexOf('continuous') >= 0) {
+        attempts.unshift({ advanced: [{ focusMode: preferred, exposureMode: 'continuous' }] });
+      }
+
+      for (var i = 0; i < attempts.length; i++) {
+        try {
+          await track.applyConstraints(attempts[i]);
+          return { ok: true, mode: preferred };
+        } catch (e) {}
+      }
+      return { ok: false, reason: 'apply_failed', modes: modes };
+    }
+
+    function showFocusPip(clientX, clientY) {
+      var wrap = document.getElementById('video-wrap');
+      var pip = document.getElementById('focus-pip');
+      if (!wrap || !pip) return;
+      var rect = wrap.getBoundingClientRect();
+      pip.style.left = (clientX - rect.left) + 'px';
+      pip.style.top = (clientY - rect.top) + 'px';
+      pip.classList.add('show');
+      clearTimeout(showFocusPip._t);
+      showFocusPip._t = setTimeout(function () { pip.classList.remove('show'); }, 700);
+    }
+
+    async function focusAtPoint(clientX, clientY) {
+      if (!mediaStream) return;
+      var track = mediaStream.getVideoTracks()[0];
+      if (!track || typeof track.getCapabilities !== 'function') return;
+      var caps = {};
+      try { caps = track.getCapabilities() || {}; } catch (e) { return; }
+      showFocusPip(clientX, clientY);
+
+      var wrap = document.getElementById('video-wrap');
+      if (!wrap) return;
+      var rect = wrap.getBoundingClientRect();
+      var x = (clientX - rect.left) / Math.max(1, rect.width);
+      var y = (clientY - rect.top) / Math.max(1, rect.height);
+      x = Math.max(0, Math.min(1, x));
+      y = Math.max(0, Math.min(1, y));
+
+      // pointsOfInterest：Chrome/Android 較常見；iOS Safari 可能唔支援
+      if (caps.pointsOfInterest) {
+        try {
+          await track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x: x, y: y }] }] });
+        } catch (e) {}
+      }
+      var modes = caps.focusMode || [];
+      if (modes.indexOf('single-shot') >= 0) {
+        try { await track.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] }); } catch (e1) {}
+        setTimeout(function () {
+          if (modes.indexOf('continuous') >= 0) {
+            track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {});
+          }
+        }, 900);
+      } else if (modes.indexOf('continuous') >= 0) {
+        try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e2) {}
+      }
+    }
+
+    function bindTapToFocus() {
+      var wrap = document.getElementById('video-wrap');
+      if (!wrap || wrap.getAttribute('data-focus-bound') === '1') return;
+      wrap.setAttribute('data-focus-bound', '1');
+      wrap.addEventListener('click', function (ev) {
+        // 唔攔截錄影掣／切鏡掣
+        if (ev.target && ev.target.closest && ev.target.closest('button')) return;
+        focusAtPoint(ev.clientX, ev.clientY);
+      }, { passive: true });
+    }
+
     function showLivePreview() {
       var wrap = document.getElementById('video-wrap');
       if (wrap) wrap.classList.add('preview-live');
@@ -1454,6 +1557,13 @@
       videoElement.setAttribute('webkit-playsinline', 'true');
       videoElement.muted = true;
       try { await videoElement.play(); } catch (e) {}
+
+      // 開連續對焦（瀏覽器／系統支援先有效）
+      try {
+        var af = await applyContinuousAutofocus(mediaStream);
+        if (!af.ok) console.info('autofocus skip:', af.reason || af);
+      } catch (eAf) {}
+      bindTapToFocus();
 
       showLivePreview();
       if (videoElement.videoWidth) syncCanvasToVideo();
@@ -1841,7 +1951,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=24').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=25').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

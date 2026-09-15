@@ -88,8 +88,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (!imageBase64 || imageBase64.length < 80) {
         return jsonResponse({ error: "Missing imageBase64 for track" }, 400);
       }
-      if (!/^[A-Za-z0-9+/=
-]+$/.test(imageBase64)) {
+      // base64 charset check without fragile regex newlines
+      let badChar = false;
+      for (let i = 0; i < imageBase64.length; i++) {
+        const c = imageBase64.charCodeAt(i);
+        const ok =
+          (c >= 48 && c <= 57) || // 0-9
+          (c >= 65 && c <= 90) || // A-Z
+          (c >= 97 && c <= 122) || // a-z
+          c === 43 || c === 47 || c === 61 || // + / =
+          c === 10 || c === 13; // whitespace newlines
+        if (!ok) { badChar = true; break; }
+      }
+      if (badChar) {
         return jsonResponse({ error: "Invalid imageBase64 charset" }, 400);
       }
       // 限制體積，避免過大 payload

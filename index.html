@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
   <title>AI 劍道動作分析</title>
   <meta name="theme-color" content="#0b0f14">
   <meta name="description" content="AI 劍道動作分析 — MediaPipe 骨架捕捉與 Gemini 診斷">
@@ -112,8 +112,18 @@
       border: 1px solid var(--line); background: #000;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
     }
+    .video-wrap.portrait { aspect-ratio: 9 / 16; }
+    .video-wrap.landscape { aspect-ratio: 16 / 9; }
+    .video-wrap .cam-loading {
+      position: absolute; inset: 0; z-index: 4;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(7,10,14,0.72); color: #e0f2fe; font-size: 0.95rem;
+      pointer-events: none; opacity: 0; transition: opacity 0.2s ease;
+    }
+    .video-wrap.loading .cam-loading { opacity: 1; }
     .video-wrap video, .video-wrap canvas {
       position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: contain;
       object-fit: contain; background: #000;
     }
 
@@ -253,10 +263,21 @@
       .video-wrap {
         width: 100%;
         max-width: none;
-        aspect-ratio: auto;
-        height: min(72dvh, calc(100dvh - 210px));
-        min-height: 55dvh;
+        aspect-ratio: 9 / 16;
+        height: auto;
+        max-height: min(72dvh, calc(100dvh - 200px));
+        min-height: 0;
         border-radius: 12px;
+      }
+      .video-wrap.landscape {
+        aspect-ratio: 16 / 9;
+        max-height: min(78dvh, calc(100dvh - 140px));
+      }
+      .video-wrap.portrait {
+        aspect-ratio: 9 / 16;
+        width: min(100%, calc((72dvh - 40px) * 9 / 16));
+        margin-left: auto; margin-right: auto;
+        max-height: min(72dvh, calc(100dvh - 200px));
       }
       #realtime-dashboard { max-width: none; gap: 6px; margin-top: 8px; }
       .metric-realtime { padding: 8px 10px; font-size: 13px; }
@@ -314,7 +335,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v21</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v22</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -375,10 +396,11 @@
       </div>
     </div>
 
-    <div class="video-wrap">
+    <div class="video-wrap portrait" id="video-wrap">
+      <div class="cam-loading" id="cam-loading">正在開啟相機…</div>
       <div class="rec-dot" id="rec-pill"><i></i>REC</div>
-      <video id="webcam" playsinline muted style="display:none;"></video>
-      <canvas id="output_canvas" width="640" height="480"></canvas>
+      <video id="webcam" playsinline muted webkit-playsinline style="display:none;"></video>
+      <canvas id="output_canvas" width="720" height="1280"></canvas>
       <div class="shutter-wrap">
         <button id="btn-flip-cam" class="shutter-side" type="button" onclick="switchCamera()" title="切換鏡頭">⟳</button>
         <button id="btn-rec" class="shutter-btn" type="button" onclick="toggleRecording()" aria-label="錄製">
@@ -387,7 +409,7 @@
         <button id="btn-to-report" class="shutter-side" type="button" onclick="switchToReportPage()" title="診斷報告" disabled style="opacity:0.4;">✓</button>
       </div>
     </div>
-    <p class="hint" id="cam-hint">提示：手機／平板練劍建議用<strong>後鏡頭</strong>拍全身。撳右上「切換後鏡頭」。首次使用請允許相機權限。</p>
+    <p class="hint" id="cam-hint">提示：鏡頭會<strong>自動跟直向／橫向</strong>。手機建議用<strong>後鏡頭</strong>拍全身；首次請允許相機權限。</p>
 
     <div id="realtime-dashboard">
       <div class="metric-realtime">狀態：<span id="rec-status" class="status-tag" style="background:#334155;color:#fff;">等待錄製</span></div>
@@ -1091,15 +1113,16 @@
       canvasCtx.restore();
     }
 
-    // 初始化 Pose 模型（提高複雜度同信心門檻，減少誤跟物件）
+    // 初始化 Pose：手機用較輕模型，開機較暢順
+    const IS_MOBILE_UA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
     pose.setOptions({
-      modelComplexity: 2,
+      modelComplexity: IS_MOBILE_UA ? 1 : 2,
       smoothLandmarks: true,
       enableSegmentation: false,
       selfieMode: false,
-      minDetectionConfidence: 0.45,
-      minTrackingConfidence: 0.40
+      minDetectionConfidence: IS_MOBILE_UA ? 0.40 : 0.45,
+      minTrackingConfidence: IS_MOBILE_UA ? 0.35 : 0.40
     });
     pose.onResults(onResults);
 
@@ -1171,6 +1194,76 @@
       canvasElement.classList.toggle('mirror', currentFacingMode === 'user');
     }
 
+
+    let cameraOrientation = 'portrait'; // portrait | landscape — 跟手機自動偵測
+    let orientationRestartTimer = null;
+    let poseFrameSkip = 0;
+
+    function detectUiOrientation() {
+      try {
+        if (screen.orientation && screen.orientation.type) {
+          return screen.orientation.type.indexOf('landscape') >= 0 ? 'landscape' : 'portrait';
+        }
+      } catch (e) {}
+      if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return 'landscape';
+      return (window.innerWidth > window.innerHeight) ? 'landscape' : 'portrait';
+    }
+
+    function setCamLoading(on, text) {
+      const wrap = document.getElementById('video-wrap');
+      const el = document.getElementById('cam-loading');
+      if (wrap) wrap.classList.toggle('loading', !!on);
+      if (el && text) el.textContent = text;
+    }
+
+    function applyVideoWrapOrientation(orient, streamLandscape) {
+      const wrap = document.getElementById('video-wrap');
+      if (!wrap) return;
+      var mode = orient || detectUiOrientation();
+      if (typeof streamLandscape === 'boolean') {
+        mode = streamLandscape ? 'landscape' : 'portrait';
+      }
+      cameraOrientation = mode;
+      wrap.classList.toggle('portrait', mode === 'portrait');
+      wrap.classList.toggle('landscape', mode === 'landscape');
+    }
+
+    function syncCanvasToVideo() {
+      const vw = videoElement.videoWidth;
+      const vh = videoElement.videoHeight;
+      if (!vw || !vh) return;
+      if (canvasElement.width !== vw || canvasElement.height !== vh) {
+        canvasElement.width = vw;
+        canvasElement.height = vh;
+      }
+      applyVideoWrapOrientation(null, vw >= vh);
+    }
+
+    function buildVideoConstraints(facingMode, orient) {
+      const face = facingMode || currentFacingMode || 'environment';
+      const portrait = (orient || detectUiOrientation()) === 'portrait';
+      if (portrait) {
+        return {
+          audio: false,
+          video: {
+            facingMode: { ideal: face },
+            width: { ideal: 720 },
+            height: { ideal: 1280 },
+            aspectRatio: { ideal: 9 / 16 }
+          }
+        };
+      }
+      return {
+        audio: false,
+        video: {
+          facingMode: { ideal: face },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          aspectRatio: { ideal: 16 / 9 }
+        }
+      };
+    }
+
     async function stopCameraStream() {
       if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
       if (mediaStream) {
@@ -1180,44 +1273,68 @@
       videoElement.srcObject = null;
     }
 
-    async function startCamera(facingMode) {
+    async function startCamera(facingMode, opts) {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         alert('呢個瀏覽器唔支援相機。請用 Safari / Chrome。');
         return;
       }
+      opts = opts || {};
+      const quiet = !!opts.quiet;
+      if (!quiet) setCamLoading(true, '正在開啟相機…');
       await stopCameraStream();
       currentFacingMode = facingMode || currentFacingMode;
-
-      const constraints = {
-        audio: false,
-        video: {
-          facingMode: { ideal: currentFacingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      };
+      const orient = detectUiOrientation();
+      applyVideoWrapOrientation(orient);
 
       try {
-        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        mediaStream = await navigator.mediaDevices.getUserMedia(buildVideoConstraints(currentFacingMode, orient));
       } catch (err1) {
-        // Fallback: some devices reject ideal facingMode object
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({
             audio: false,
-            video: { facingMode: currentFacingMode }
+            video: {
+              facingMode: currentFacingMode,
+              aspectRatio: orient === 'portrait' ? (9 / 16) : (16 / 9)
+            }
           });
-        } catch (err2) {
-          console.error(err2);
-          alert('無法開啟相機：' + (err2.message || err2) + '\n請檢查權限，或改用另一個瀏覽器。');
-          return;
+        } catch (err1b) {
+          try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: { facingMode: currentFacingMode }
+            });
+          } catch (err2) {
+            console.error(err2);
+            setCamLoading(false);
+            alert('無法開啟相機：' + (err2.message || err2) + '\n請檢查權限，或改用另一個瀏覽器。');
+            return;
+          }
         }
       }
 
       videoElement.srcObject = mediaStream;
       videoElement.setAttribute('playsinline', 'true');
+      videoElement.setAttribute('webkit-playsinline', 'true');
       videoElement.muted = true;
-      await videoElement.play();
+      try { await videoElement.play(); } catch (e) {}
+
+      await new Promise(function (resolve) {
+        var done = false;
+        function finish() {
+          if (done) return;
+          done = true;
+          syncCanvasToVideo();
+          resolve();
+        }
+        if (videoElement.videoWidth) finish();
+        else {
+          videoElement.addEventListener('loadedmetadata', finish, { once: true });
+          setTimeout(finish, 800);
+        }
+      });
+
       updateFlipButtonLabel();
+      setCamLoading(false);
 
       const loop = async function () {
         if (poseLoopBusy) {
@@ -1225,24 +1342,30 @@
           return;
         }
         if (videoElement.readyState >= 2) {
+          if (IS_MOBILE_UA) {
+            poseFrameSkip = (poseFrameSkip + 1) % 2;
+            if (poseFrameSkip !== 0) {
+              rafId = requestAnimationFrame(loop);
+              return;
+            }
+          }
           poseLoopBusy = true;
           try {
+            if (videoElement.videoWidth && canvasElement.width !== videoElement.videoWidth) {
+              syncCanvasToVideo();
+            }
             if (practiceMode === 'pair') {
               const now = Date.now();
               const evalEvery = osmoAssist ? 5000 : PAIR_EVAL_INTERVAL_MS;
               if ((pairTrackMode === 'ai' || pairTrackMode === 'auto') && (now - lastPairEvalMs > evalEvery || !pairAutoLocked)) {
-                // 唔 await，避免卡 MediaPipe 幀
                 runAiPairTrack();
               }
               if (osmoAssist && pairAutoLocked) {
                 trackRoi.cx = 0.5;
-                trackRoi.halfW = 0.48; // 中央闊框，信雲台捉拍
+                trackRoi.halfW = 0.48;
               }
               drawTrackRoiCrop();
               await pose.send({ image: poseCropCanvas });
-            } else if (osmoAssist) {
-              // 單人＋Osmo：全畫面分析
-              await pose.send({ image: videoElement });
             } else {
               await pose.send({ image: videoElement });
             }
@@ -1252,6 +1375,30 @@
         rafId = requestAnimationFrame(loop);
       };
       rafId = requestAnimationFrame(loop);
+    }
+
+    function onDeviceOrientationMaybeRestart() {
+      const next = detectUiOrientation();
+      if (videoElement.videoWidth) {
+        const streamLandscape = videoElement.videoWidth >= videoElement.videoHeight;
+        // 串流已同方向：只改外框；否則延遲重開相機
+        if ((next === 'landscape') === streamLandscape) {
+          applyVideoWrapOrientation(next, streamLandscape);
+          return;
+        }
+      }
+      if (orientationRestartTimer) clearTimeout(orientationRestartTimer);
+      orientationRestartTimer = setTimeout(async function () {
+        if (typeof isRecording !== 'undefined' && isRecording) {
+          applyVideoWrapOrientation(detectUiOrientation());
+          return;
+        }
+        setCamLoading(true, '切換直／橫向…');
+        try {
+          await startCamera(currentFacingMode, { quiet: true });
+        } catch (e) {}
+        setCamLoading(false);
+      }, 350);
     }
 
     async function switchCamera() {
@@ -1270,17 +1417,29 @@
       }
     }
 
-    // Default: try back camera first on mobile for kendo practice; fallback to front
-    (async function initCam() {
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      try {
-        await startCamera(isMobile ? 'environment' : 'user');
-      } catch (e) {
-        await startCamera('user');
+    // 自動偵測直／橫；手機預設後鏡頭
+    applyVideoWrapOrientation(detectUiOrientation());
+    window.addEventListener('orientationchange', onDeviceOrientationMaybeRestart);
+    window.addEventListener('resize', function () {
+      if (IS_MOBILE_UA) onDeviceOrientationMaybeRestart();
+    });
+    try {
+      if (screen.orientation && screen.orientation.addEventListener) {
+        screen.orientation.addEventListener('change', onDeviceOrientationMaybeRestart);
       }
+    } catch (e) {}
+
+    (async function initCam() {
+      setCamLoading(true, '正在開啟相機…');
       setGuideStep(1);
       if (typeof refreshCoachBaselineUI === "function") refreshCoachBaselineUI();
       onPracticeModeChange();
+      if (typeof loadOsmoAssistPreference === "function") loadOsmoAssistPreference();
+      try {
+        await startCamera(IS_MOBILE_UA ? 'environment' : 'user');
+      } catch (e) {
+        try { await startCamera('user'); } catch (e2) {}
+      }
     })();
 
     window.switchCamera = switchCamera;
@@ -1585,7 +1744,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=21').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=22').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });

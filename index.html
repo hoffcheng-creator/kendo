@@ -14,9 +14,8 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   <style>
     :root {
       --bg: #070a0e;
@@ -121,6 +120,15 @@
       pointer-events: none; opacity: 0; transition: opacity 0.2s ease;
     }
     .video-wrap.loading .cam-loading { opacity: 1; }
+    .video-wrap.preview-live > video#webcam {
+      display: block !important; z-index: 1; object-fit: cover; background: #000;
+    }
+    .video-wrap.preview-live:not(.pose-ready) > canvas {
+      opacity: 0; pointer-events: none;
+    }
+    .video-wrap.pose-ready > canvas { opacity: 1; z-index: 2; }
+    .video-wrap.pose-ready > video#webcam { opacity: 0; }
+
     .video-wrap video, .video-wrap canvas {
       position: absolute; inset: 0; width: 100%; height: 100%;
       object-fit: contain;
@@ -335,7 +343,7 @@
     <div class="topbar">
       <div>
         <h1>AI 劍道動作分析</h1>
-        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v22</p>
+        <p class="subtitle">MediaPipe 骨架捕捉 · 錄影重播 · Gemini 診斷 · v23</p>
       </div>
       <div class="brand">KENDO <b>AI Coach</b></div>
     </div>
@@ -725,6 +733,7 @@
     }
 
     async function evaluatePairSides() {
+      if (!poseReady || !pose) return;
       skipOnResultsDraw = true;
       try {
         drawPairCrop('left');
@@ -792,6 +801,7 @@
 
     async function runAiPairTrack() {
       if (aiTrackInFlight) return;
+      if (!poseReady || !pose) return;
       if (practiceMode !== 'pair' || pairTrackMode !== 'ai') return;
       const imageBase64 = captureTrackFrameBase64();
       if (!imageBase64) return;
@@ -1113,18 +1123,72 @@
       canvasCtx.restore();
     }
 
-    // 初始化 Pose：手機用較輕模型，開機較暢順
+    // Pose 延後載入：先開相機預覽，骨架模型背景載入（開機先快）
     const IS_MOBILE_UA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
-    pose.setOptions({
-      modelComplexity: IS_MOBILE_UA ? 1 : 2,
-      smoothLandmarks: true,
-      enableSegmentation: false,
-      selfieMode: false,
-      minDetectionConfidence: IS_MOBILE_UA ? 0.40 : 0.45,
-      minTrackingConfidence: IS_MOBILE_UA ? 0.35 : 0.40
-    });
-    pose.onResults(onResults);
+    let pose = null;
+    let poseReady = false;
+    let poseLoading = null;
+    const MP_DRAW = 'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js';
+    const MP_POSE = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js';
+
+    function loadScriptOnce(src) {
+      return new Promise(function (resolve, reject) {
+        var existing = document.querySelector('script[data-kendo-src="' + src + '"]');
+        if (existing) {
+          if (existing.getAttribute('data-loaded') === '1') return resolve();
+          existing.addEventListener('load', function () { resolve(); });
+          existing.addEventListener('error', reject);
+          return;
+        }
+        var s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.crossOrigin = 'anonymous';
+        s.setAttribute('data-kendo-src', src);
+        s.onload = function () { s.setAttribute('data-loaded', '1'); resolve(); };
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    async function ensurePose() {
+      if (poseReady && pose) return pose;
+      if (poseLoading) return poseLoading;
+      poseLoading = (async function () {
+        setCamLoading(true, '載入動作模型…');
+        await loadScriptOnce(MP_DRAW);
+        await loadScriptOnce(MP_POSE);
+        if (typeof Pose === 'undefined') throw new Error('Pose SDK 未能載入');
+        pose = new Pose({ locateFile: function (file) {
+          return 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/' + file;
+        }});
+        pose.setOptions({
+          modelComplexity: IS_MOBILE_UA ? 0 : 1,
+          smoothLandmarks: true,
+          enableSegmentation: false,
+          selfieMode: false,
+          minDetectionConfidence: IS_MOBILE_UA ? 0.35 : 0.45,
+          minTrackingConfidence: IS_MOBILE_UA ? 0.30 : 0.40
+        });
+        pose.onResults(onResults);
+        if (typeof pose.initialize === 'function') {
+          await pose.initialize();
+        }
+        poseReady = true;
+        var wrap = document.getElementById('video-wrap');
+        if (wrap) wrap.classList.add('pose-ready');
+        setCamLoading(false);
+        return pose;
+      })();
+      try {
+        return await poseLoading;
+      } catch (e) {
+        poseLoading = null;
+        setCamLoading(false);
+        console.error(e);
+        throw e;
+      }
+    }
 
     // ===== Camera with front/back switch (iOS/Android) =====
     let currentFacingMode = 'user'; // user=前鏡, environment=後鏡
@@ -1239,17 +1303,20 @@
       applyVideoWrapOrientation(null, vw >= vh);
     }
 
-    function buildVideoConstraints(facingMode, orient) {
+    function buildVideoConstraints(facingMode, orient, fast) {
       const face = facingMode || currentFacingMode || 'environment';
+      // 極速路徑：只揀鏡頭，唔迫解像度／比例（iPhone 最穩、最快）
+      if (fast) {
+        return { audio: false, video: { facingMode: { ideal: face } } };
+      }
       const portrait = (orient || detectUiOrientation()) === 'portrait';
       if (portrait) {
         return {
           audio: false,
           video: {
             facingMode: { ideal: face },
-            width: { ideal: 720 },
-            height: { ideal: 1280 },
-            aspectRatio: { ideal: 9 / 16 }
+            width: { ideal: IS_MOBILE_UA ? 540 : 720 },
+            height: { ideal: IS_MOBILE_UA ? 960 : 1280 }
           }
         };
       }
@@ -1257,9 +1324,8 @@
         audio: false,
         video: {
           facingMode: { ideal: face },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          aspectRatio: { ideal: 16 / 9 }
+          width: { ideal: IS_MOBILE_UA ? 960 : 1280 },
+          height: { ideal: IS_MOBILE_UA ? 540 : 720 }
         }
       };
     }
@@ -1273,70 +1339,37 @@
       videoElement.srcObject = null;
     }
 
-    async function startCamera(facingMode, opts) {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('呢個瀏覽器唔支援相機。請用 Safari / Chrome。');
-        return;
-      }
-      opts = opts || {};
-      const quiet = !!opts.quiet;
-      if (!quiet) setCamLoading(true, '正在開啟相機…');
-      await stopCameraStream();
-      currentFacingMode = facingMode || currentFacingMode;
-      const orient = detectUiOrientation();
-      applyVideoWrapOrientation(orient);
+    function showLivePreview() {
+      var wrap = document.getElementById('video-wrap');
+      if (wrap) wrap.classList.add('preview-live');
+      videoElement.style.display = 'block';
+    }
 
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia(buildVideoConstraints(currentFacingMode, orient));
-      } catch (err1) {
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-              facingMode: currentFacingMode,
-              aspectRatio: orient === 'portrait' ? (9 / 16) : (16 / 9)
-            }
-          });
-        } catch (err1b) {
+    function startPreviewLoop() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      const loop = function () {
+        if (poseReady) {
+          // 交俾 pose loop
+          return;
+        }
+        if (videoElement.readyState >= 2) {
           try {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-              audio: false,
-              video: { facingMode: currentFacingMode }
-            });
-          } catch (err2) {
-            console.error(err2);
-            setCamLoading(false);
-            alert('無法開啟相機：' + (err2.message || err2) + '\n請檢查權限，或改用另一個瀏覽器。');
-            return;
-          }
+            if (videoElement.videoWidth) syncCanvasToVideo();
+            canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+          } catch (e) {}
         }
-      }
+        rafId = requestAnimationFrame(loop);
+      };
+      rafId = requestAnimationFrame(loop);
+    }
 
-      videoElement.srcObject = mediaStream;
-      videoElement.setAttribute('playsinline', 'true');
-      videoElement.setAttribute('webkit-playsinline', 'true');
-      videoElement.muted = true;
-      try { await videoElement.play(); } catch (e) {}
-
-      await new Promise(function (resolve) {
-        var done = false;
-        function finish() {
-          if (done) return;
-          done = true;
-          syncCanvasToVideo();
-          resolve();
-        }
-        if (videoElement.videoWidth) finish();
-        else {
-          videoElement.addEventListener('loadedmetadata', finish, { once: true });
-          setTimeout(finish, 800);
-        }
-      });
-
-      updateFlipButtonLabel();
-      setCamLoading(false);
-
+    function startPoseLoop() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
       const loop = async function () {
+        if (!poseReady || !pose) {
+          rafId = requestAnimationFrame(loop);
+          return;
+        }
         if (poseLoopBusy) {
           rafId = requestAnimationFrame(loop);
           return;
@@ -1345,6 +1378,10 @@
           if (IS_MOBILE_UA) {
             poseFrameSkip = (poseFrameSkip + 1) % 2;
             if (poseFrameSkip !== 0) {
+              // 隔幀：仍畫鏡頭，保持流暢
+              try {
+                canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+              } catch (e) {}
               rafId = requestAnimationFrame(loop);
               return;
             }
@@ -1375,6 +1412,61 @@
         rafId = requestAnimationFrame(loop);
       };
       rafId = requestAnimationFrame(loop);
+    }
+
+    async function startCamera(facingMode, opts) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('呢個瀏覽器唔支援相機。請用 Safari / Chrome。');
+        return;
+      }
+      opts = opts || {};
+      const quiet = !!opts.quiet;
+      if (!quiet) setCamLoading(true, '正在開啟相機…');
+      await stopCameraStream();
+      currentFacingMode = facingMode || currentFacingMode;
+      const orient = detectUiOrientation();
+      applyVideoWrapOrientation(orient);
+
+      // 1) 極速：只指定前後鏡頭
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(buildVideoConstraints(currentFacingMode, orient, true));
+      } catch (err1) {
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: true
+          });
+        } catch (err2) {
+          console.error(err2);
+          setCamLoading(false);
+          alert('無法開啟相機：' + (err2.message || err2) + '\n請檢查權限，或改用另一個瀏覽器。');
+          return;
+        }
+      }
+
+      videoElement.srcObject = mediaStream;
+      videoElement.setAttribute('playsinline', 'true');
+      videoElement.setAttribute('webkit-playsinline', 'true');
+      videoElement.muted = true;
+      try { await videoElement.play(); } catch (e) {}
+
+      showLivePreview();
+      if (videoElement.videoWidth) syncCanvasToVideo();
+      else {
+        videoElement.addEventListener('loadedmetadata', function () { syncCanvasToVideo(); }, { once: true });
+      }
+
+      updateFlipButtonLabel();
+      setCamLoading(false); // 鏡頭已出，唔再卡 loading
+      startPreviewLoop();
+
+      // 2) 背景載 Pose，完成後接上骨架追蹤
+      ensurePose().then(function () {
+        startPoseLoop();
+      }).catch(function (e) {
+        console.warn('Pose load failed', e);
+        setLockTag('rt-pose-lock', 'weak', '模型載入失敗');
+      });
     }
 
     function onDeviceOrientationMaybeRestart() {
@@ -1430,11 +1522,11 @@
     } catch (e) {}
 
     (async function initCam() {
-      setCamLoading(true, '正在開啟相機…');
       setGuideStep(1);
       if (typeof refreshCoachBaselineUI === "function") refreshCoachBaselineUI();
       onPracticeModeChange();
       if (typeof loadOsmoAssistPreference === "function") loadOsmoAssistPreference();
+      // 先開鏡頭（快），Pose 喺 startCamera 內背景載
       try {
         await startCamera(IS_MOBILE_UA ? 'environment' : 'user');
       } catch (e) {
@@ -1744,7 +1836,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js?v=22').catch(function (err) {
+        navigator.serviceWorker.register('./sw.js?v=23').catch(function (err) {
           console.warn('SW registration failed:', err);
         });
       });
